@@ -1,0 +1,9 @@
+﻿  Main.c
+C:\Users\ethan\Desktop\Provrbs-Packet-Capture\src\Main.c(9,33): warning C4047: 'function': 'char *' differs in levels of indirection from 'char (*)[256]'
+C:\Users\ethan\Desktop\Provrbs-Packet-Capture\src\Main.c(9,33): warning C4024: 'pcap_findalldevs': different types for formal and actual parameter 2
+  Generating code
+  0 of 4 functions ( 0.0%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    0 functions had inline decision re-evaluated but remain unchanged
+  Finished generating code
+  Provrbs-Packet-Capture.vcxproj -> C:\Users\ethan\Desktop\Provrbs-Packet-Capture\out\release\Provrbs-Packet-Capture.exe
