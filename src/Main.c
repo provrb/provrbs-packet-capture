@@ -51,7 +51,6 @@ const char* GetPacketProtocol(struct Packet* packet) {
     const char* protocol = "";
 
     if ( packet->h_ethernet.type[0] == 134 && packet->h_ethernet.type[1] == 221 ) {
-        printf("IPV6!!!");
         protocol = "IPV6";
         return protocol;
     }
@@ -107,7 +106,6 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
 
         // tcp header
         if ( strcmp(GetPacketProtocol(&packet), "TCP") == 0 && index < 47 ) {
-            printf("Parsing TCP header. %d\n", index);
             if ( index > 33 && index < 36 )
                 packet.h_tcp.sourcePort[index - 34] = rawData[index];
             else if ( index > 35 && index < 38 )
@@ -117,8 +115,7 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
             else if ( index > 41 && index < 46 )
                 packet.h_tcp.ackNum[index - 42] = rawData[index];
             else if ( index == 46 ) {
-                printf("Got TCP Header Length %d, %d\n", index, rawData[index]);
-                packet.h_tcp.len = rawData[index]; // tcp header len
+                packet.h_tcp.len = rawData[index] / 4; // tcp header len
                 packet.payloadSize = packetSize - ( ( ( int ) packet.h_tcp.len ) + 20 + 14 );
             }
         } else if ( index < 42 ) {
@@ -140,7 +137,6 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
         // payload
         else {
             if ( strcmp(GetPacketProtocol(&packet), "TCP") == 0 ) {
-                printf("Payload\n");
                 // tcp payload
                 int payloadStart = 20 + 14 + ((int)packet.h_tcp.len);
                 if ( index >= payloadStart ) {
@@ -162,6 +158,8 @@ static pcap_handler HandlePacket(u_char* byteStrHandle, const struct pcap_pkthdr
         return;    
 
     // parse headers
+
+    // todo. add IPV6 support as IPV4 is only supported 
     struct Packet packet = ParseRawPacket(data, pacInfo->len);
     if ( strcmp(GetPacketProtocol(&packet), "TCP") != 0 )
         return;
