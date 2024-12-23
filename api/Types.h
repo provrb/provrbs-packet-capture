@@ -42,6 +42,7 @@ struct Packet
     int payloadSize; // h_udp.len - 8 bytes
     u_char* payload; // malloc packet len - size of all headers
     uint32_t packetSize;
+    u_char* rawData;
 
     /**
      * Parsed packet Ethernet header.

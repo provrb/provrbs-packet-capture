@@ -1,11 +1,11 @@
-#pragma once
+#ifndef _PACKET_OP_H_
+#define _PACKET_OP_H_
 
 #include "Types.h"
 
-#include <stdio.h>
 #include <WinSock2.h>
 
-struct Packet FilterPacket(struct Packet packet);
+BOOL                  FilterPacket(struct Packet* packet);
 enum IPVersion        GetIPVersion(struct Packet* packet);
 BOOL                  IsIPV6Packet(struct Packet* packet);
 BOOL                  IsIPV4Packet(struct Packet* packet);
@@ -18,3 +18,7 @@ u_char*               GetSourceIPAddress(struct Packet* packet);
 struct Packet         ParseRawPacket(u_char* rawData, uint32_t packetSize);
 static pcap_handler   HandlePacket(u_char* byteStrHandle, const struct pcap_pkthdr* pacInfo, const u_char* data);
 void                  CapturePackets();
+const char*           GetStringIPV(enum IPVersion ipv);
+const char*           GetStringProtocol(enum InternetProtocol p);
+
+#endif

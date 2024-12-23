@@ -22,6 +22,108 @@ const char* GetStringIPV(enum IPVersion ipv) {
     return str;
 }
 
+BOOL IsPacketMalformed(struct Packet* packet, uint32_t expectedSize) {
+
+}
+
+int ParseIPV4Header(struct Packet* packet, int index) {
+    if ( index == 14 )                   packet->h_ip.ip4.versionihl = packet->rawData[index];
+    else if ( index == 15 )              packet->h_ip.ip4.serviceType = packet->rawData[index];
+    else if ( index > 15 && index < 18 ) packet->h_ip.ip4.headerSize[index - 16] = packet->rawData[index];
+    else if ( index > 17 && index < 20 ) packet->h_ip.ip4.id[index - 18] = packet->rawData[index];
+    else if ( index > 19 && index < 22 ) packet->h_ip.ip4.flags[index - 20] = packet->rawData[index];
+    else if ( index == 22 )              packet->h_ip.ip4.ttl = packet->rawData[index];
+    else if ( index == 23 )              packet->h_ip.ip4.protocol = packet->rawData[index];
+    else if ( index > 23 && index < 26 ) packet->h_ip.ip4.checksum[index - 24] = packet->rawData[index];
+    else if ( index > 25 && index < 30 ) packet->h_ip.ip4.sourceIP[index - 26] = packet->rawData[index];
+    else                                 packet->h_ip.ip4.destIP[index - 30] = packet->rawData[index];
+    
+    return ETH_HEADER_SIZE + IP4_HEADER_SIZE;
+}
+
+int ParseIPV6Header(struct Packet* packet, int index) {
+    if ( index == 14 )                   packet->h_ip.ip6.versionihl = packet->rawData[index];
+    else if ( index > 14 && index < 18 ) packet->h_ip.ip6.flowLabel[index - 15] = packet->rawData[index];
+    else if ( index > 17 && index < 20 ) packet->h_ip.ip6.payloadLen[index - 18] = packet->rawData[index];
+    else if ( index == 20 )              packet->h_ip.ip6.nextHeader = packet->rawData[index];
+    else if ( index == 21 )              packet->h_ip.ip6.hopLimit = packet->rawData[index];
+    else if ( index > 21 && index < 38 ) packet->h_ip.ip6.sourceAddr[index - 22] = packet->rawData[index];
+    else packet->h_ip.ip6.destAddr[index - 38] = packet->rawData[index];
+
+    return ETH_HEADER_SIZE + IP6_HEADER_SIZE;
+}
+
+void ParseTCPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
+    if ( index < hdrOffset + 2 ) packet->h_proto.tcp.sourcePort[index - hdrOffset] = packet->rawData[index];
+    else if ( index < hdrOffset + 4 )  packet->h_proto.tcp.destPort[index - ( hdrOffset + 2 )] = packet->rawData[index];
+    else if ( index < hdrOffset + 8 )  packet->h_proto.tcp.sequenceNum[index - ( hdrOffset + 4 )] = packet->rawData[index];
+    else if ( index < hdrOffset + 12 ) packet->h_proto.tcp.ackNum[index - ( hdrOffset + 8 )] = packet->rawData[index];
+    else if ( index == hdrOffset + 12 ) {
+        packet->h_proto.tcp.len = packet->rawData[index] / 4; // tcp header len
+        packet->payloadSize = packet->packetSize - ( packet->h_proto.tcp.len + hdrOffset );
+    }
+}
+
+void ParseUDPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
+    if ( index < hdrOffset + 2 )      packet->h_proto.udp.sourcePort[index - hdrOffset] = packet->rawData[index];
+    else if ( index < hdrOffset + 4 ) packet->h_proto.udp.destPort[index - ( hdrOffset + 2 )] = packet->rawData[index];
+    else if ( index < hdrOffset + 6 ) {
+        packet->h_proto.udp.len[index - ( hdrOffset + 4 )] = packet->rawData[index]; // udp header len
+
+        if ( index - ( hdrOffset + 4 ) == 1 ) // set payload size
+            packet->payloadSize = ( ( packet->h_proto.udp.len[0] << 8 ) | packet->h_proto.udp.len[1] ) - UDP_HEADER_SIZE;
+    }
+    else packet->h_proto.udp.checksum[index - ( hdrOffset - 6 )] = packet->rawData[index];
+}
+
+void ParseICMPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
+    if ( index < hdrOffset + 1 )      packet->h_proto.icmp.type = packet->rawData[index];
+    else if ( index < hdrOffset + 2 ) packet->h_proto.icmp.code = packet->rawData[index];
+    else if ( index < hdrOffset + 5 ) packet->h_proto.icmp.checksum[index - ( hdrOffset + 2 )] = packet->rawData[index];
+    else if ( index < hdrOffset + 9 ) packet->h_proto.icmp.flags[index - ( hdrOffset + 4 )] = packet->rawData[index];
+}
+
+void ParseEthernetHeader(struct Packet* packet, int index) {
+    if ( index < 6 )       packet->h_ethernet.dest[index - 0] = packet->rawData[index];
+    else if ( index < 12 ) packet->h_ethernet.source[index - 6] = packet->rawData[index];
+    else {
+        packet->h_ethernet.type[index - 12] = packet->rawData[index];
+        if ( index - 12 == 1 )
+            packet->ipVer = GetIPVersion(packet);
+    }
+}
+
+void ParsePacketPayload(struct Packet* packet, int index, uint32_t hdrOffset) {
+    int payloadStart = 0;
+    if ( GetPacketProtocol(packet) == TCP || GetPacketProtocol(packet) == UDP )
+        payloadStart = ( GetPacketProtocol(packet) == TCP ) ? hdrOffset + packet->h_proto.tcp.len : hdrOffset + UDP_HEADER_SIZE;
+    else if ( GetPacketProtocol(packet) == ICMP )
+        payloadStart = hdrOffset + ICMP_HEADER_SIZE;
+
+    if ( packet->payload && index >= payloadStart )
+        packet->payload[index - payloadStart] = packet->rawData[index];
+}
+
+BOOL IsIPV4Header(struct Packet* packet, int index) {
+    return ( IsIPV4Packet(packet) && index < ( ETH_HEADER_SIZE + IP4_HEADER_SIZE ) );
+}
+
+BOOL IsIPV6Header(struct Packet* packet, int index) {
+    return ( IsIPV6Packet(packet) && index < ( ETH_HEADER_SIZE + IP6_HEADER_SIZE ) );
+}
+
+BOOL IsTCPHeader(struct Packet* packet, int index, uint32_t offset) {
+    return ( GetPacketProtocol(packet) == TCP && index >= offset && index < offset + TCP_MIN_HEADER_SIZE );
+}
+
+BOOL IsUDPHeader(struct Packet* packet, int index, uint32_t offset) {
+    return ( GetPacketProtocol(packet) == UDP && index >= offset && index < offset + UDP_HEADER_SIZE );
+}
+
+BOOL IsICMPHeader(struct Packet* packet, int index, uint32_t offset) {
+    return ( GetPacketProtocol(packet) == ICMP && index >= offset && index < offset + ICMP_HEADER_SIZE );
+}
+
 const char* GetStringProtocol(enum InternetProtocol p) {
     const char* str = "Unknown";
     switch ( p ) {
@@ -86,11 +188,17 @@ u_char* CompressIPV6Address(u_char* address) {
         return 1;
     }
 
-    char compressed[INET6_ADDRSTRLEN];
-
-    PCSTR addr = inet_ntop(AF_INET6, address, compressed, sizeof(compressed));
-    if ( addr == NULL )
+    char* compressed = (char*)malloc(INET6_ADDRSTRLEN);
+    if ( compressed == NULL ) {
+        WSACleanup();
         return "";
+    }
+
+    if ( inet_ntop(AF_INET6, address, compressed, INET6_ADDRSTRLEN) == NULL ) {
+        free(compressed);
+        WSACleanup();
+        return "";
+    }
 
     WSACleanup();
 
@@ -107,7 +215,11 @@ u_char* GetSourceIPAddress(struct Packet* packet) {
 }
 
 BOOL FilterPacket(struct Packet* packet) {
-    if ( GetPacketProtocol(&packet) == UDP || GetPacketProtocol(&packet) == UNKNOWN )
+    if ( GetPacketProtocol(packet) == UDP || 
+        GetPacketProtocol(packet) == UNKNOWN ||
+        packet->packetSize > 200 ||
+        GetIPVersion(packet) == UnknownIPV
+    )
         return FALSE;
 
     return TRUE; // passthrough
@@ -115,111 +227,51 @@ BOOL FilterPacket(struct Packet* packet) {
 
 struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
     struct Packet packet;
-    packet.packetSize = packetSize;
+    packet.packetSize  = packetSize;
     packet.payloadSize = 0;
-    packet.payload = ( u_char* ) malloc(packetSize);
+    packet.payload     = ( u_char* ) malloc(packetSize);
+    packet.rawData     = rawData;
 
-    int protoHeaderOffset = 0;
+    uint32_t protoHeaderOffset = 0;
 
     for ( int index = 0; index < packetSize; index++ ) {
-        // parse eth header
-        if ( index < 14 ) {
-            if ( index < 6 )       packet.h_ethernet.dest[index - 0] = rawData[index];
-            else if ( index < 12 ) packet.h_ethernet.source[index - 6] = rawData[index];
-            else                   packet.h_ethernet.type[index - 12] = rawData[index];
-        }
+        if ( index < ETH_HEADER_SIZE )
+            ParseEthernetHeader(&packet, index);
 
-        packet.ipVer = GetIPVersion(&packet);
+        else if ( IsIPV4Header(&packet, index) )
+            protoHeaderOffset = ParseIPV4Header(&packet, index);
+        
+        else if ( IsIPV6Header(&packet, index) )
+            protoHeaderOffset = ParseIPV6Header(&packet, index);
 
-        // parse ipv4 header
-        if ( index < ( ETH_HEADER_SIZE + IP4_HEADER_SIZE ) && IsIPV4Packet(&packet) ) {
-            if ( index == 14 )                   packet.h_ip.ip4.versionihl = rawData[index];
-            else if ( index == 15 )              packet.h_ip.ip4.serviceType = rawData[index];
-            else if ( index > 15 && index < 18 ) packet.h_ip.ip4.headerSize[index - 16] = rawData[index];
-            else if ( index > 17 && index < 20 ) packet.h_ip.ip4.id[index - 18] = rawData[index];
-            else if ( index > 19 && index < 22 ) packet.h_ip.ip4.flags[index - 20] = rawData[index];
-            else if ( index == 22 )              packet.h_ip.ip4.ttl = rawData[index];
-            else if ( index == 23 )              packet.h_ip.ip4.protocol = rawData[index];
-            else if ( index > 23 && index < 26 ) packet.h_ip.ip4.checksum[index - 24] = rawData[index];
-            else if ( index > 25 && index < 30 ) packet.h_ip.ip4.sourceIP[index - 26] = rawData[index];
-            else {
-                packet.h_ip.ip4.destIP[index - 30] = rawData[index];
-                protoHeaderOffset = ETH_HEADER_SIZE + IP4_HEADER_SIZE;
-            }
-        }
-
-        // parse ipv6 header
-        else if ( index < ( ETH_HEADER_SIZE + IP6_HEADER_SIZE ) && IsIPV6Packet(&packet) ) {
-            if ( index == 14 )                   packet.h_ip.ip6.versionihl = rawData[index];
-            else if ( index > 14 && index < 18 ) packet.h_ip.ip6.flowLabel[index - 15] = rawData[index];
-            else if ( index > 17 && index < 20 ) packet.h_ip.ip6.payloadLen[index - 18] = rawData[index];
-            else if ( index == 20 )              packet.h_ip.ip6.nextHeader = rawData[index];
-            else if ( index == 21 )              packet.h_ip.ip6.hopLimit = rawData[index];
-            else if ( index > 21 && index < 38 ) packet.h_ip.ip6.sourceAddr[index - 22] = rawData[index];
-            else {
-                packet.h_ip.ip6.destAddr[index - 38] = rawData[index];
-                protoHeaderOffset = ETH_HEADER_SIZE + IP6_HEADER_SIZE;
-            }
-        }
-
-        // tcp header
-        else if ( GetPacketProtocol(&packet) == TCP && index >= protoHeaderOffset && index < protoHeaderOffset + TCP_MIN_HEADER_SIZE ) {
-            if ( index < protoHeaderOffset + 2 ) packet.h_proto.tcp.sourcePort[index - protoHeaderOffset] = rawData[index];
-            else if ( index < protoHeaderOffset + 4 )  packet.h_proto.tcp.destPort[index - (protoHeaderOffset + 2)] = rawData[index];
-            else if ( index < protoHeaderOffset + 8 )  packet.h_proto.tcp.sequenceNum[index - (protoHeaderOffset + 4)] = rawData[index];
-            else if ( index < protoHeaderOffset + 12 ) packet.h_proto.tcp.ackNum[index - (protoHeaderOffset + 8)] = rawData[index];
-            else if ( index == protoHeaderOffset + 12 ) {
-                packet.h_proto.tcp.len = rawData[index] / 4; // tcp header len
-                packet.payloadSize = packetSize - (packet.h_proto.tcp.len + protoHeaderOffset );
-            }
-        }
-
-        // udp header
-        else if ( GetPacketProtocol(&packet) == UDP && index >= protoHeaderOffset && index < protoHeaderOffset + UDP_HEADER_SIZE ) {
-            if ( index < protoHeaderOffset + 2 )      packet.h_proto.udp.sourcePort[index - protoHeaderOffset] = rawData[index];
-            else if ( index < protoHeaderOffset + 4 ) packet.h_proto.udp.destPort[index - ( protoHeaderOffset + 2 )] = rawData[index];
-            else if ( index < protoHeaderOffset + 6 ) {
-                packet.h_proto.udp.len[index - ( protoHeaderOffset + 4 )] = rawData[index]; // udp header len
-
-                if ( index - ( protoHeaderOffset + 4 ) == 1 ) // set payload size
-                    packet.payloadSize = ((packet.h_proto.udp.len[0] << 8) | packet.h_proto.udp.len[1]) - UDP_HEADER_SIZE;
-            }
-            else packet.h_proto.udp.checksum[index - ( protoHeaderOffset - 6 )] = rawData[index];
-        } 
-
-        // icmp header
-        else if ( GetPacketProtocol(&packet) == ICMP && index >= protoHeaderOffset && index < protoHeaderOffset + ICMP_HEADER_SIZE ) {
-            if ( index < protoHeaderOffset + 1 ) packet.h_proto.icmp.type = rawData[index];
-            else if ( index < protoHeaderOffset + 2 ) packet.h_proto.icmp.code = rawData[index];
-            else if ( index < protoHeaderOffset + 5 ) packet.h_proto.icmp.checksum[index - ( protoHeaderOffset + 2 )] = rawData[index];
-            else if ( index < protoHeaderOffset + 9 ) packet.h_proto.icmp.flags[index - ( protoHeaderOffset + 4 )] = rawData[index];
-        }
-
-        // payload
-        else {
-            int payloadStart = 0;
-
-            if ( GetPacketProtocol(&packet) == TCP || GetPacketProtocol(&packet) == UDP )
-                payloadStart = ( GetPacketProtocol(&packet) == TCP ) ? protoHeaderOffset + packet.h_proto.tcp.len : protoHeaderOffset + UDP_HEADER_SIZE;
-            else if ( GetPacketProtocol(&packet) == ICMP )
-                payloadStart = protoHeaderOffset + ICMP_HEADER_SIZE;
-            
-            if ( packet.payload && index >= payloadStart )
-                packet.payload[index - payloadStart] = rawData[index];
-        }
+        else if ( IsTCPHeader(&packet, index, protoHeaderOffset) )
+            ParseTCPHeader(&packet, index, protoHeaderOffset); 
+        
+        else if ( IsUDPHeader(&packet, index, protoHeaderOffset) )
+            ParseUDPHeader(&packet, index, protoHeaderOffset);
+        
+        else if ( IsICMPHeader(&packet, index, protoHeaderOffset) )
+            ParseICMPHeader(&packet, index, protoHeaderOffset);
+        
+        else
+            ParsePacketPayload(&packet, index, protoHeaderOffset);
     }
-
     return packet;
 }
 
 static pcap_handler HandlePacket(u_char* byteStrHandle, const struct pcap_pkthdr* pacInfo, const u_char* data) {
     struct Packet packet = ParseRawPacket(data, pacInfo->len);
-    if ( packet.ipVer == UnknownIPV ) // malformed?
-        return;
+    if ( packet.ipVer == UnknownIPV ) {
+        // malformed ?
+        free(packet.payload);
+        return;                                                                                             
+    }   
 
-    if ( !FilterPacket(&packet) ) // no passthrough
+    if ( !FilterPacket(&packet) ) {
+        free(packet.payload);
         return;
-
+    }
+    
     PrintPacketInfo(&packet);
     PacketHexDump(&packet);
 
