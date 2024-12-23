@@ -41,6 +41,7 @@ struct Packet
     enum InternetProtocol protocol;
     int payloadSize; // h_udp.len - 8 bytes
     u_char* payload; // malloc packet len - size of all headers
+    uint32_t packetSize;
 
     /**
      * Parsed packet Ethernet header.
