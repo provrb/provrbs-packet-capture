@@ -259,7 +259,7 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
     return packet;
 }
 
-static pcap_handler HandlePacket(u_char* byteStrHandle, const struct pcap_pkthdr* pacInfo, const u_char* data) {
+static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, const u_char* data) {
     struct Packet packet = ParseRawPacket(data, pacInfo->len);
     if ( packet.ipVer == UnknownIPV ) {
         // malformed ?
@@ -272,6 +272,8 @@ static pcap_handler HandlePacket(u_char* byteStrHandle, const struct pcap_pkthdr
         return;
     }
     
+    packetCount++;
+
     PrintPacketInfo(&packet);
     PacketHexDump(&packet);
 

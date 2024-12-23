@@ -5,6 +5,8 @@
 
 #include <WinSock2.h>
 
+static uint32_t packetCount = 1;
+
 BOOL                  FilterPacket(struct Packet* packet);
 enum IPVersion        GetIPVersion(struct Packet* packet);
 BOOL                  IsIPV6Packet(struct Packet* packet);
