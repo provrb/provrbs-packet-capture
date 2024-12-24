@@ -2,8 +2,11 @@
 #define _PACKET_OP_H_
 
 #include "Types.h"
-
 #include <WinSock2.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 static uint32_t packetCount = 1;
 
@@ -17,10 +20,15 @@ enum InternetProtocol GetPacketProtocol(struct Packet* packet);
 uint32_t              HexPortToInt(u_char port[2]);
 u_char*               CompressIPV6Address(u_char* address);
 u_char*               GetSourceIPAddress(struct Packet* packet);
+u_char*               GetDestIPAddress(struct Packet* packet);
 struct Packet         ParseRawPacket(u_char* rawData, uint32_t packetSize);
 static pcap_handler   HandlePacket(u_char* byteStrHandle, const struct pcap_pkthdr* pacInfo, const u_char* data);
 void                  CapturePackets();
 const char*           GetStringIPV(enum IPVersion ipv);
 const char*           GetStringProtocol(enum InternetProtocol p);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

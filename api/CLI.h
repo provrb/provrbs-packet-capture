@@ -23,13 +23,27 @@ void PrintPacketInfo(struct Packet* packet) {
         printf("Source IP        : %s\n", CompressIPV6Address(packet->h_ip.ip6.sourceAddr));
         printf("Destination IP   : %s\n", CompressIPV6Address(packet->h_ip.ip6.destAddr));
     }
-
+     
     if ( GetPacketProtocol(packet) == ICMP ) {
         printf("Type             : %d\n", packet->h_proto.icmp.type);
         printf("Code             : %d\n", packet->h_proto.icmp.code);
         printf("Checksum         : 0x%02x%02x\n", packet->h_proto.icmp.checksum[0], packet->h_proto.icmp.checksum[1]);
         printf("Flags            : 0x%02x%02x%02x%02x\n", packet->h_proto.icmp.flags[0], packet->h_proto.icmp.flags[1], packet->h_proto.icmp.flags[2], packet->h_proto.icmp.flags[3]);
     }
+    else if ( GetPacketProtocol(packet) == TCP ) {
+        printf("Checksum         : 0x%02x%02x\n", packet->h_proto.tcp.checksum[0], packet->h_proto.tcp.checksum[1]);
+        printf("Window           : %d\n", ( packet->h_proto.tcp.window[0] << 8 ) | packet->h_proto.tcp.window[1]);
+        printf("Urgent Pointer   : %d\n", ( packet->h_proto.tcp.urgentPtr[0] << 8 ) | packet->h_proto.tcp.urgentPtr[1]);
+    }
+
+    printf("Source MAC       : %02x:%02x:%02x:%02x:%02x:%02x\n", 
+        packet->h_ethernet.source[0],
+        packet->h_ethernet.source[1],
+        packet->h_ethernet.source[2],
+        packet->h_ethernet.source[3],
+        packet->h_ethernet.source[4],
+        packet->h_ethernet.source[5]
+    );
 
     printf("Source Port      : %d\n", GetSourcePort(packet));
     printf("Destination Port : %d\n", GetDestPort(packet));

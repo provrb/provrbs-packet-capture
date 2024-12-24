@@ -29,6 +29,11 @@ enum InternetProtocol
     IGMP = 2,
 };
 
+enum Events 
+{
+    EVT_PACKET_RECEIVED = 0x40,
+};
+
 /**
  * Packet struct represents a network packet. 
  * Encapsulates various headers (Ethernet, IP, UDP, TCP) 
@@ -43,6 +48,8 @@ struct Packet
     u_char* payload; // malloc packet len - size of all headers
     uint32_t packetSize;
     u_char* rawData;
+    uint32_t packetNumber;
+    time_t timestamp;
 
     /**
      * Parsed packet Ethernet header.

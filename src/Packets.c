@@ -1,9 +1,11 @@
 #include "Packets.h"
 #include "CLI.h"
+#include <ui/UIEvents.h>
 
 enum IPVersion GetIPVersion(struct Packet* packet) {
     if ( packet->h_ethernet.type[0] == 134 && packet->h_ethernet.type[1] == 221 )
         return kIPV6;
+
     else if ( packet->h_ethernet.type[0] == 8 && packet->h_ethernet.type[1] == 0 )
         return kIPV4;
     return UnknownIPV;
@@ -23,7 +25,7 @@ const char* GetStringIPV(enum IPVersion ipv) {
 }
 
 BOOL IsPacketMalformed(struct Packet* packet, uint32_t expectedSize) {
-
+    // todo: 
 }
 
 int ParseIPV4Header(struct Packet* packet, int index) {
@@ -62,6 +64,15 @@ void ParseTCPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
         packet->h_proto.tcp.len = packet->rawData[index] / 4; // tcp header len
         packet->payloadSize = packet->packetSize - ( packet->h_proto.tcp.len + hdrOffset );
     }
+    else if ( index == hdrOffset + 13 )
+        packet->h_proto.tcp.congWinFlag = packet->rawData[index];
+    else if ( index < hdrOffset + 16 && index > hdrOffset + 13 )
+        packet->h_proto.tcp.window[index - ( hdrOffset + 14 )] = packet->rawData[index];
+    else if ( index < hdrOffset + 18 && index > hdrOffset + 15 )
+        packet->h_proto.tcp.checksum[index - ( hdrOffset + 16 )] = packet->rawData[index];
+    else if ( index > hdrOffset + 17 )
+        packet->h_proto.tcp.urgentPtr[index - ( hdrOffset + 18 )] = packet->rawData[index];
+    
 }
 
 void ParseUDPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
@@ -73,7 +84,7 @@ void ParseUDPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
         if ( index - ( hdrOffset + 4 ) == 1 ) // set payload size
             packet->payloadSize = ( ( packet->h_proto.udp.len[0] << 8 ) | packet->h_proto.udp.len[1] ) - UDP_HEADER_SIZE;
     }
-    else packet->h_proto.udp.checksum[index - ( hdrOffset - 6 )] = packet->rawData[index];
+    else packet->h_proto.udp.checksum[index - ( hdrOffset + 6 )] = packet->rawData[index];
 }
 
 void ParseICMPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
@@ -214,10 +225,19 @@ u_char* GetSourceIPAddress(struct Packet* packet) {
     return "";
 }
 
+u_char* GetDestIPAddress(struct Packet* packet) {
+    if ( GetIPVersion(packet) == kIPV4 )
+        return packet->h_ip.ip4.destIP;
+    else if ( GetIPVersion(packet) == kIPV6 )
+        return CompressIPV6Address(packet->h_ip.ip6.destAddr);
+
+    return "";
+}
+
+
 BOOL FilterPacket(struct Packet* packet) {
     if ( GetPacketProtocol(packet) == UDP || 
         GetPacketProtocol(packet) == UNKNOWN ||
-        packet->packetSize > 200 ||
         GetIPVersion(packet) == UnknownIPV
     )
         return FALSE;
@@ -227,10 +247,12 @@ BOOL FilterPacket(struct Packet* packet) {
 
 struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
     struct Packet packet;
-    packet.packetSize  = packetSize;
-    packet.payloadSize = 0;
-    packet.payload     = ( u_char* ) malloc(packetSize);
-    packet.rawData     = rawData;
+    packet.packetSize   = packetSize;
+    packet.payloadSize  = 0;
+    packet.payload      = ( u_char* ) malloc(packetSize);
+    packet.rawData      = rawData;
+    packet.packetNumber = packetCount;
+    packet.timestamp    = time(NULL);
 
     uint32_t protoHeaderOffset = 0;
 
@@ -244,7 +266,9 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
         else if ( IsIPV6Header(&packet, index) )
             protoHeaderOffset = ParseIPV6Header(&packet, index);
 
-        else if ( IsTCPHeader(&packet, index, protoHeaderOffset) )
+        packet.protocol = GetPacketProtocol(&packet);
+
+        if ( IsTCPHeader(&packet, index, protoHeaderOffset) )
             ParseTCPHeader(&packet, index, protoHeaderOffset); 
         
         else if ( IsUDPHeader(&packet, index, protoHeaderOffset) )
@@ -272,16 +296,16 @@ static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, c
         return;
     }
     
-    packetCount++;
-
     PrintPacketInfo(&packet);
     PacketHexDump(&packet);
 
-    free(packet.payload);
+    OnPacketCapture(&packet);
+    packetCount++;
     printf("\n\n");
 }
 
 void CapturePackets() {
+    MessageBoxA(NULL, "Capturing packets", "Status", MB_OK | MB_ICONINFORMATION);
     // error buffers
     char devErrBuff[PCAP_ERRBUF_SIZE];
     char openLiveErrBuff[PCAP_ERRBUF_SIZE];
