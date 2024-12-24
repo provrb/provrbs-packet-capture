@@ -19,6 +19,13 @@ enum IPVersion
     kIPV6,
 };
 
+enum TLSVersions {
+    TLS1_0 = 0x0301,
+    TLS1_1 = 0x0302,
+    TLS1_2 = 0x0303,
+    TLS1_3 = 0x0304
+};
+
 enum InternetProtocol 
 {
     ICMPHEADER2 = 0,
@@ -50,6 +57,14 @@ struct Packet
     u_char* rawData;
     uint32_t packetNumber;
     time_t timestamp;
+
+    struct {
+        BOOL usesTLS;
+        u_char contentType;
+        u_char tlsVersion[2];
+        enum TLSVersions tlsVersionID;
+        u_char encryptedPayloadLen[2];
+    } tls;
 
     /**
      * Parsed packet Ethernet header.

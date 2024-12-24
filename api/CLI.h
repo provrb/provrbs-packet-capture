@@ -36,6 +36,14 @@ void PrintPacketInfo(struct Packet* packet) {
         printf("Urgent Pointer   : %d\n", ( packet->h_proto.tcp.urgentPtr[0] << 8 ) | packet->h_proto.tcp.urgentPtr[1]);
     }
 
+    if ( packet->tls.usesTLS ) {
+        enum TLSVersions ver = packet->tls.tlsVersionID;
+        printf("TLS Encrypted.\n");
+        printf("TLS Version      : %s\n", GetStringTLSVersion(ver));
+        printf("TLS Length       : %02x%02x\n", packet->tls.encryptedPayloadLen[0], packet->tls.encryptedPayloadLen[1]);
+        printf("Content Type     : %d\n", packet->tls.contentType);
+    }
+
     printf("Source MAC       : %02x:%02x:%02x:%02x:%02x:%02x\n", 
         packet->h_ethernet.source[0],
         packet->h_ethernet.source[1],
@@ -52,6 +60,7 @@ void PrintPacketInfo(struct Packet* packet) {
     printf("Payload size     : %d\n", packet->payloadSize);
 
     printf("\nDumped Contents (Hex)");
+
 }
 
 void PacketHexDump(struct Packet* packet) {

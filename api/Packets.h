@@ -10,6 +10,7 @@ extern "C" {
 
 static uint32_t packetCount = 1;
 
+const char*           GetStringTLSVersion(enum TLSVersions tlsv);
 BOOL                  FilterPacket(struct Packet* packet);
 enum IPVersion        GetIPVersion(struct Packet* packet);
 BOOL                  IsIPV6Packet(struct Packet* packet);

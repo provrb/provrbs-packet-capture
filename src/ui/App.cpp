@@ -19,6 +19,7 @@ void FrontendReceivePacket(struct Packet* packet) {
 
     wxString srcAddr = "";
     wxString destAddr = "";
+    wxString protocol = GetStringProtocol(packet->protocol);
 
     if ( IsIPV6Packet(packet) ) {
         srcAddr = wxString::FromUTF8(std::string((char*)GetSourceIPAddress(packet)));
@@ -29,12 +30,15 @@ void FrontendReceivePacket(struct Packet* packet) {
         destAddr = mainFrame->MakeReadableIPV4Address(packet->h_ip.ip4.destIP);
     }
 
+    if ( packet->tls.usesTLS )
+        protocol = "TCP/TLS";
+
     mainFrame->InsertPacket(
         std::to_string(packet->packetNumber),
         GetStringIPV(packet->ipVer),
         srcAddr,
         destAddr,
-        GetStringProtocol(packet->protocol),
+        protocol,
         std::to_string(GetSourcePort(packet)),
         std::to_string(GetDestPort(packet)),
         std::to_string(packet->packetSize)

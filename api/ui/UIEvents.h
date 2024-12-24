@@ -9,7 +9,6 @@ extern "C" {
 
     void RegisterFrontendCapture(void ( *callback )( struct Packet* packet ));
     void OnPacketCapture(struct Packet* packet);
-
 #ifdef __cplusplus
 }
 #endif

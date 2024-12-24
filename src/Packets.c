@@ -11,6 +11,25 @@ enum IPVersion GetIPVersion(struct Packet* packet) {
     return UnknownIPV;
 }
 
+const char* GetStringTLSVersion(enum TLSVersions tlsv) {
+    const char* str = "Unknown";
+    switch ( tlsv ) {
+    case TLS1_0: 
+        str = "TLS 1.0";
+        break;
+    case TLS1_1:
+        str = "TLS 1.1";
+        break;
+    case TLS1_2:
+        str = "TLS 1.2";
+        break;
+    case TLS1_3:
+        str = "TLS 1.3";
+        break;
+    }
+    return str;
+}
+
 const char* GetStringIPV(enum IPVersion ipv) {
     const char* str = "Unknown";
     switch ( ipv ) {
@@ -64,15 +83,10 @@ void ParseTCPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
         packet->h_proto.tcp.len = packet->rawData[index] / 4; // tcp header len
         packet->payloadSize = packet->packetSize - ( packet->h_proto.tcp.len + hdrOffset );
     }
-    else if ( index == hdrOffset + 13 )
-        packet->h_proto.tcp.congWinFlag = packet->rawData[index];
-    else if ( index < hdrOffset + 16 && index > hdrOffset + 13 )
-        packet->h_proto.tcp.window[index - ( hdrOffset + 14 )] = packet->rawData[index];
-    else if ( index < hdrOffset + 18 && index > hdrOffset + 15 )
-        packet->h_proto.tcp.checksum[index - ( hdrOffset + 16 )] = packet->rawData[index];
-    else if ( index > hdrOffset + 17 )
-        packet->h_proto.tcp.urgentPtr[index - ( hdrOffset + 18 )] = packet->rawData[index];
-    
+    else if ( index == hdrOffset + 13 ) packet->h_proto.tcp.congWinFlag = packet->rawData[index];
+    else if ( index < hdrOffset + 16 && index > hdrOffset + 13 ) packet->h_proto.tcp.window[index - ( hdrOffset + 14 )] = packet->rawData[index];
+    else if ( index < hdrOffset + 18 && index > hdrOffset + 15 ) packet->h_proto.tcp.checksum[index - ( hdrOffset + 16 )] = packet->rawData[index];
+    else if ( index > hdrOffset + 17 ) packet->h_proto.tcp.urgentPtr[index - ( hdrOffset + 18 )] = packet->rawData[index];
 }
 
 void ParseUDPHeader(struct Packet* packet, int index, uint32_t hdrOffset) {
@@ -111,7 +125,25 @@ void ParsePacketPayload(struct Packet* packet, int index, uint32_t hdrOffset) {
     else if ( GetPacketProtocol(packet) == ICMP )
         payloadStart = hdrOffset + ICMP_HEADER_SIZE;
 
-    if ( packet->payload && index >= payloadStart )
+    if ( IsTLSPayload(packet, payloadStart) ) {
+        // save tls info. increment payload start after saving to save the encrypted data
+        packet->tls.contentType = packet->rawData[payloadStart];
+        if ( index < payloadStart + 3 && index > payloadStart ) {
+            packet->tls.tlsVersion[index - ( payloadStart + 1 )] = packet->rawData[index];
+            if ( index - ( payloadStart + 1 ) == 1 ) {
+                packet->tls.tlsVersionID = (enum TLSVersion)(( packet->tls.tlsVersion[0] << 8 ) | packet->tls.tlsVersion[1]);
+            }
+        }
+        else if ( index < payloadStart + 5 && index > payloadStart + 3 ) {
+            packet->tls.encryptedPayloadLen[index - ( payloadStart + 3 )] = packet->rawData[index];
+            payloadStart += 6;
+        }
+        else
+            if ( index >= payloadStart )
+                packet->payload[index - payloadStart] = packet->rawData;
+    }
+
+    if ( packet->payload && index >= payloadStart && packet->tls.usesTLS == FALSE )
         packet->payload[index - payloadStart] = packet->rawData[index];
 }
 
@@ -234,15 +266,26 @@ u_char* GetDestIPAddress(struct Packet* packet) {
     return "";
 }
 
-
 BOOL FilterPacket(struct Packet* packet) {
-    if ( GetPacketProtocol(packet) == UDP || 
-        GetPacketProtocol(packet) == UNKNOWN ||
-        GetIPVersion(packet) == UnknownIPV
-    )
+    if ( GetPacketProtocol(packet) == UNKNOWN ||
+         GetIPVersion(packet) == UnknownIPV )
         return FALSE;
 
     return TRUE; // passthrough
+}
+
+BOOL IsTLSPayload(struct Packet* packet, int index) {
+    if ( packet->protocol == TCP &&
+        GetDestPort(packet) == 443 &&
+        packet->rawData[index] == 0x17
+        ) 
+        // start of "payload" after 
+    {
+        packet->tls.usesTLS = TRUE;
+        return TRUE;
+    }
+    packet->tls.usesTLS = FALSE;
+    return FALSE;
 }
 
 struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
@@ -269,14 +312,13 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
         packet.protocol = GetPacketProtocol(&packet);
 
         if ( IsTCPHeader(&packet, index, protoHeaderOffset) )
-            ParseTCPHeader(&packet, index, protoHeaderOffset); 
-        
+            ParseTCPHeader(&packet, index, protoHeaderOffset);
+
         else if ( IsUDPHeader(&packet, index, protoHeaderOffset) )
             ParseUDPHeader(&packet, index, protoHeaderOffset);
-        
+
         else if ( IsICMPHeader(&packet, index, protoHeaderOffset) )
             ParseICMPHeader(&packet, index, protoHeaderOffset);
-        
         else
             ParsePacketPayload(&packet, index, protoHeaderOffset);
     }
