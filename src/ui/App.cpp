@@ -10,7 +10,30 @@
 
 wxIMPLEMENT_APP(App);
 
-void FrontendReceivePacket(struct Packet* packet) {
+Packet MakePacketDeepCopy(struct Packet* original) {
+    Packet copied;
+    
+    copied.rawData  = new u_char[original->packetSize];
+    memcpy(copied.rawData, original->rawData, original->packetSize);
+
+    copied.httpVer = original->httpVer;
+    copied.h_ethernet = original->h_ethernet;
+    copied.h_ip = original->h_ip;
+    copied.h_proto = original->h_proto;
+    copied.ipVer = original->ipVer;
+    copied.likelyHTTP = original->likelyHTTP;
+    copied.packetNumber = original->packetNumber;
+    copied.packetSize = original->packetSize;
+    copied.payload = original->payload;
+    copied.payloadSize = original->payloadSize;
+    copied.protocol = original->protocol;
+    copied.timestamp = original->timestamp;
+    copied.tls = original->tls;
+
+    return copied;
+}
+
+void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
     MainFrame* mainFrame = wxDynamicCast(wxTheApp->GetTopWindow(), MainFrame);
     if ( !mainFrame ) {
         MessageBoxA(NULL, "Error", "Error getting main frame", MB_OK);
@@ -20,31 +43,54 @@ void FrontendReceivePacket(struct Packet* packet) {
     wxString srcAddr = "";
     wxString destAddr = "";
     wxString protocol = GetStringProtocol(packet->protocol);
+    wxString info = "";
 
     if ( IsIPV6Packet(packet) ) {
-        srcAddr = wxString::FromUTF8(std::string((char*)GetSourceIPAddress(packet)));
-        destAddr = wxString::FromUTF8(std::string((char*)GetDestIPAddress(packet)));
+        srcAddr = wxString::FromUTF8(std::string(( char* ) GetSourceIPAddress(packet)));
+        destAddr = wxString::FromUTF8(std::string(( char* ) GetDestIPAddress(packet)));
     }
     else if ( IsIPV4Packet(packet) ) {
         srcAddr = mainFrame->MakeReadableIPV4Address(packet->h_ip.ip4.sourceIP);
         destAddr = mainFrame->MakeReadableIPV4Address(packet->h_ip.ip4.destIP);
     }
+    else if ( IsARPPacket(packet) ) {
+        // src and dest will be mac addresses
+        ( IsBroadcastMAC(packet->h_ethernet.source) ) ? srcAddr = "Broadcast" : srcAddr = mainFrame->MakeReadableMACAddress(packet->h_ethernet.source);
+        ( IsBroadcastMAC(packet->h_ethernet.dest) ) ? destAddr = "Broadcast" : destAddr = mainFrame->MakeReadableMACAddress(packet->h_ethernet.dest);
+    }
 
-    if ( packet->tls.usesTLS )
+    if ( packet->tls.usesTLS ) {
         protocol = "TCP/TLS";
+        if ( packet->tls.contentType == ApplicationData )
+            info += "Application Data ";
+    } 
+    
+    if ( IsSuspectedHTTPRequest(packet) )
+        info += "HTTP Payload Suspected " + wxString::Format("%s", GetStringHTTPVersion(packet->httpVer)) + " ";
+    else if ( IsKeepAlivePacket(packet) )
+        info += "Keep-Alive Packet ";
+    else if ( IsDNSQuery(packet) )
+        info += "DNS Standard Query";
+    
+    if ( IsARPPacket(packet) )
+        info = "Who has " + mainFrame->MakeReadableIPV4Address(packet->h_proto.arp.senderIP) + "? Tell " + mainFrame->MakeReadableIPV4Address(packet->h_proto.arp.targetIP);
+
+    packet->rawData = packetData;
+    Packet copied = MakePacketDeepCopy(packet);
+
+    mainFrame->packets.insert({copied.packetNumber, copied});
 
     mainFrame->InsertPacket(
-        std::to_string(packet->packetNumber),
-        GetStringIPV(packet->ipVer),
+        std::to_string(copied.packetNumber),
+        GetStringIPV(copied.ipVer),
         srcAddr,
         destAddr,
         protocol,
-        std::to_string(GetSourcePort(packet)),
-        std::to_string(GetDestPort(packet)),
-        std::to_string(packet->packetSize)
+        std::to_string(GetSourcePort(&copied)),
+        std::to_string(GetDestPort(&copied)),
+        std::to_string(copied.packetSize),
+        info
     );
-
-    mainFrame->packets.insert({ packet->packetNumber, *packet });
 }
 
 bool App::OnInit()

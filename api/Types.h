@@ -8,6 +8,9 @@
 #define UDP_HEADER_SIZE 8
 #define TCP_MIN_HEADER_SIZE 20
 #define ICMP_HEADER_SIZE 8
+#define ARP_HEADER_SIZE 27
+
+#define DNS_QUERY_PORT 53
 
 #include <ctype.h>
 #include <npcap/pcap.h>
@@ -17,6 +20,7 @@ enum IPVersion
     UnknownIPV = -1,
     kIPV4 = 1,
     kIPV6,
+    kARP = 0x806 // 'type' in eth header if is arp packet
 };
 
 enum TLSVersions {
@@ -26,14 +30,39 @@ enum TLSVersions {
     TLS1_3 = 0x0304
 };
 
+enum TCPFlags {
+    FIN = 0x01,
+    SYN = 0x02,
+    RST = 0x04,
+    PSH = 0x08,
+    ACK = 0x10,
+    URG = 0X20,
+    ECE = 0x40,
+    CWR = 0x80,
+    NS = 0x100,
+};
+
+enum TLSContentType {
+    ApplicationData = 0x17,
+};
+
+enum HTTPVersions {
+    HTTP1_0 = 0x0100,
+    HTTP1_1 = 0x0101,
+    HTTP2   = 0x0200,
+    HTTP3   = 0x0300
+};
+
 enum InternetProtocol 
 {
     ICMPHEADER2 = 0,
     UNKNOWN = -1,
-    TCP = 6,
-    ICMP = 58,
-    UDP = 17,
     IGMP = 2,
+    TCP = 6,
+    UDP = 17,
+    ICMP = 58,
+    ARP = 99,
+    HTTP
 };
 
 enum Events 
@@ -49,14 +78,18 @@ enum Events
  */
 struct Packet 
 {
-    enum IPVersion ipVer;
-    enum InternetProtocol protocol;
+    enum IPVersion ipVer; // ip version the packet contains
+    enum InternetProtocol protocol; // internet protocol used
+    
     int payloadSize; // h_udp.len - 8 bytes
     u_char* payload; // malloc packet len - size of all headers
-    uint32_t packetSize;
+    uint32_t packetSize; // full packet size including all headers and payload
+    time_t timestamp; // time the packet was received at
     u_char* rawData;
     uint32_t packetNumber;
-    time_t timestamp;
+
+    BOOL likelyHTTP; // if the packet is suspected to be an http request based off string comparisons
+    enum HTTPVersions httpVer; // if 'likelyHTTP', the http version in the packet
 
     struct {
         BOOL usesTLS;
@@ -123,9 +156,14 @@ struct Packet
 
     /**
      * Parsed protocol headers.
-     * Contains either UDP or TCP header information.
      */
     union {
+        struct {
+            u_char opcode[2];
+            u_char senderIP[4];
+            u_char targetIP[4];
+        } arp; // only includes important info
+
         struct
         {
             u_char sourcePort[2];

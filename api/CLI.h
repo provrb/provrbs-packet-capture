@@ -31,9 +31,16 @@ void PrintPacketInfo(struct Packet* packet) {
         printf("Flags            : 0x%02x%02x%02x%02x\n", packet->h_proto.icmp.flags[0], packet->h_proto.icmp.flags[1], packet->h_proto.icmp.flags[2], packet->h_proto.icmp.flags[3]);
     }
     else if ( GetPacketProtocol(packet) == TCP ) {
+        char* flags = GetStringTCPFlagsSet(packet);
+        if ( flags != NULL ) {
+            printf("Flags set        : %s\n", flags);
+            free(flags);
+        }
+
         printf("Checksum         : 0x%02x%02x\n", packet->h_proto.tcp.checksum[0], packet->h_proto.tcp.checksum[1]);
         printf("Window           : %d\n", ( packet->h_proto.tcp.window[0] << 8 ) | packet->h_proto.tcp.window[1]);
         printf("Urgent Pointer   : %d\n", ( packet->h_proto.tcp.urgentPtr[0] << 8 ) | packet->h_proto.tcp.urgentPtr[1]);
+        
     }
 
     if ( packet->tls.usesTLS ) {
@@ -53,8 +60,21 @@ void PrintPacketInfo(struct Packet* packet) {
         packet->h_ethernet.source[5]
     );
 
-    printf("Source Port      : %d\n", GetSourcePort(packet));
-    printf("Destination Port : %d\n", GetDestPort(packet));
+    printf("Destination MAC  : %02x:%02x:%02x:%02x:%02x:%02x\n",
+        packet->h_ethernet.dest[0],
+        packet->h_ethernet.dest[1],
+        packet->h_ethernet.dest[2],
+        packet->h_ethernet.dest[3],
+        packet->h_ethernet.dest[4],
+        packet->h_ethernet.dest[5]
+    );
+
+    if ( !IsARPPacket(packet) ) {
+        printf("Source Port      : %d\n", GetSourcePort(packet));
+        printf("Destination Port : %d\n", GetDestPort(packet));
+    }
+    
+    
     printf("IP Version       : %s\n", GetStringIPV(GetIPVersion(packet)));
     printf("Protocol         : %s\n", GetStringProtocol(GetPacketProtocol(packet)));
     printf("Payload size     : %d\n", packet->payloadSize);

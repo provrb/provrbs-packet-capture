@@ -8,7 +8,31 @@ enum IPVersion GetIPVersion(struct Packet* packet) {
 
     else if ( packet->h_ethernet.type[0] == 8 && packet->h_ethernet.type[1] == 0 )
         return kIPV4;
+
+    else if ( packet->h_ethernet.type[0] == 8 && packet->h_ethernet.type[1] == 6 )
+        return kARP;
+
     return UnknownIPV;
+}
+
+const char* GetStringHTTPVersion(enum HTTPVersions ver) {
+    const char* str = "Unknown";
+    switch ( ver )
+    {
+    case HTTP1_0:
+        str = "HTTP/1.0";
+        break;
+    case HTTP1_1:
+        str = "HTTP/1.1";
+        break;
+    case HTTP2:
+        str = "HTTP/2";
+        break;
+    case HTTP3:
+        str = "HTTP/3";
+        break;
+    }
+    return str;
 }
 
 const char* GetStringTLSVersion(enum TLSVersions tlsv) {
@@ -30,6 +54,32 @@ const char* GetStringTLSVersion(enum TLSVersions tlsv) {
     return str;
 }
 
+BOOL IsTCPFlagSet(struct Packet* packet, enum TCPFlags flag)
+{
+    u_char* tcpHeader = "";
+    if ( GetIPVersion(packet) == kIPV6 )
+        tcpHeader = packet->rawData + (ETH_HEADER_SIZE + IP6_HEADER_SIZE);
+    else if ( GetIPVersion(packet) == kIPV4 )
+        tcpHeader = packet->rawData + (ETH_HEADER_SIZE + IP4_HEADER_SIZE);
+    else
+        return FALSE;
+
+    /* Where to search using & operator for our flags */    
+    return ( tcpHeader[13] & flag ) != 0;
+}
+
+BOOL IsBroadcastMAC(u_char* mac) {
+    return ( mac[0] == 0xff && mac[1] == 0xff && mac[2] == 0xff && mac[3] == 0xff && mac[4] == 0xff && mac[5] == 0xff );
+}
+
+BOOL IsARPPacket(struct Packet* packet)
+{
+    if ( packet->h_ethernet.type[0] == 8 && packet->h_ethernet.type[1] == 6 )
+        return TRUE;
+
+    return FALSE;
+}
+
 const char* GetStringIPV(enum IPVersion ipv) {
     const char* str = "Unknown";
     switch ( ipv ) {
@@ -38,6 +88,9 @@ const char* GetStringIPV(enum IPVersion ipv) {
         break;
     case kIPV6:
         str = "IPv6";
+        break;
+    case kARP:
+        str = "ARP";
         break;
     }
     return str;
@@ -182,8 +235,92 @@ const char* GetStringProtocol(enum InternetProtocol p) {
     case IGMP:
         str = "IGMP";
         break;
+    case ARP:
+        str = "ARP";
+        break;
     }
     return str;
+}
+
+/*
+* Check all flags in the TCP packet. If the flag 
+* is set, add the acrynoym to a string and return that string
+* containing the name of all flags
+*/
+char* GetStringTCPFlagsSet(struct Packet* packet) {
+    if ( GetPacketProtocol(packet) != TCP )
+        return "";
+
+    char* flags = (char*)malloc(256);
+    if ( flags == NULL )
+        return "";
+
+    flags[0] = '\0';
+
+    if ( IsTCPFlagSet(packet, FIN) ) strcat(flags, "FIN 0x01 ");
+    if ( IsTCPFlagSet(packet, SYN) ) strcat(flags, "SYN 0x02 ");
+    if ( IsTCPFlagSet(packet, RST) ) strcat(flags, "RST 0x04 ");
+    if ( IsTCPFlagSet(packet, PSH) ) strcat(flags, "PSH 0x08 ");
+    if ( IsTCPFlagSet(packet, ACK) ) strcat(flags, "ACK 0x10 ");
+    if ( IsTCPFlagSet(packet, URG) ) strcat(flags, "URG 0x20 ");
+    if ( IsTCPFlagSet(packet, ECE) ) strcat(flags, "ECE 0x40 ");
+    if ( IsTCPFlagSet(packet, CWR) ) strcat(flags, "CWR 0x80 ");
+    if ( IsTCPFlagSet(packet, NS)  ) strcat(flags, "NS 0x100 ");
+    
+    flags[strlen(flags) + 1] = '\0';
+
+    return flags;
+}
+
+BOOL IsSuspectedHTTPRequest(struct Packet* packet) {
+    if ( GetPacketProtocol(packet) != TCP )
+        return FALSE;
+
+    // make an array of printable ascii characters from the rawData
+    // look for 'HTTP', 'GET', 'User-Agent', 'POST', 'Host:', '.com'
+    u_char* ascii = (u_char*)malloc(packet->packetSize + 1);
+    if ( ascii == NULL )
+        return FALSE;
+
+    for ( int i = 0; i < packet->packetSize; i++ ) {
+        u_char asciiChar = ( u_char ) packet->rawData[i];
+        if ( isprint(asciiChar) )
+            ascii[i] = asciiChar;
+        else
+            ascii[i] = '.';
+    }
+
+    // look for common strings. intiai idea whether or not http
+    if ( strstr(ascii, "HTTP") != NULL )
+        packet->likelyHTTP = TRUE;
+    else if ( strstr(ascii, "GET") != NULL )
+        packet->likelyHTTP = TRUE;
+    else if ( strstr(ascii, "POST") != NULL )
+        packet->likelyHTTP = TRUE;
+    else if ( strstr(ascii, "Content-Type") != NULL )
+        packet->likelyHTTP = TRUE;
+    else if ( strstr(ascii, "Host") != NULL )
+        packet->likelyHTTP = TRUE;
+
+    if ( !packet->likelyHTTP ) {
+        free(ascii);
+        return FALSE;
+    }
+
+    // look for a version. final idea of whether or not http
+    if ( strstr(ascii, "HTTP/1.0") != NULL )
+        packet->httpVer = HTTP1_0;
+    else if ( strstr(ascii, "HTTP/1.1") != NULL )
+        packet->httpVer = HTTP1_1;
+    else if ( strstr(ascii, "HTTP/2") != NULL )
+        packet->httpVer = HTTP2;
+    else if ( strstr(ascii, "HTTP/3") != NULL )
+        packet->httpVer = HTTP3;
+    else // no version found. likely not http
+        packet->likelyHTTP = FALSE;
+
+    free(ascii);
+    return packet->likelyHTTP;
 }
 
 BOOL IsIPV6Packet(struct Packet* packet) {
@@ -195,6 +332,8 @@ BOOL IsIPV4Packet(struct Packet* packet) {
 }
 
 uint32_t GetDestPort(struct Packet* packet) {
+    if ( GetPacketProtocol(packet) == ARP )
+        return 0; // no port
     if ( GetPacketProtocol(packet) == UDP )
         return HexPortToInt(packet->h_proto.udp.destPort);
     else if ( GetPacketProtocol(packet) == TCP )
@@ -202,7 +341,9 @@ uint32_t GetDestPort(struct Packet* packet) {
 }
 
 uint32_t GetSourcePort(struct Packet* packet) {
-    if ( GetPacketProtocol(packet) == UDP )
+    if ( GetPacketProtocol(packet) == ARP )
+        return 0; // no port
+    else if ( GetPacketProtocol(packet) == UDP )
         return HexPortToInt(packet->h_proto.udp.sourcePort);
     else if ( GetPacketProtocol(packet) == TCP )
         return HexPortToInt(packet->h_proto.tcp.sourcePort);
@@ -213,9 +354,13 @@ uint32_t GetSourcePort(struct Packet* packet) {
 enum InternetProtocol GetPacketProtocol(struct Packet* packet) {
     enum InternetProtocol protocol = UNKNOWN;
 
+    if ( IsARPPacket(packet) )
+        return ARP;
+
     if ( IsIPV4Packet(packet) )      protocol = packet->h_ip.ip4.protocol;
-    else if ( IsIPV6Packet(packet) ) protocol = packet->h_ip.ip6.nextHeader;
     else if ( IsIPV6Packet(packet) && packet->h_ip.ip6.nextHeader == ICMPHEADER2 ) protocol = ICMP;
+    else if ( IsIPV6Packet(packet) && packet->h_ip.ip6.nextHeader == ICMP ) protocol = ICMP;
+    else if ( IsIPV6Packet(packet) ) protocol = packet->h_ip.ip6.nextHeader;
 
     return protocol;
 }
@@ -266,9 +411,33 @@ u_char* GetDestIPAddress(struct Packet* packet) {
     return "";
 }
 
+BOOL IsDNSQuery(struct Packet* packet) {
+    if ( GetSourcePort(packet) == DNS_QUERY_PORT || GetDestPort(packet) == DNS_QUERY_PORT )
+        return TRUE;
+
+    return FALSE;
+}
+
+BOOL IsKeepAlivePacket(struct Packet* packet) {
+    if ( GetPacketProtocol(packet) != TCP )
+        return FALSE;
+
+    if ( IsTCPFlagSet(packet, ACK) &&
+        !IsTCPFlagSet(packet, PSH) &&
+        !IsTCPFlagSet(packet, FIN) &&
+        !IsTCPFlagSet(packet, RST) &&
+        !IsTCPFlagSet(packet, SYN) &&
+        packet->payloadSize == 0
+        ) 
+        return TRUE;
+   
+    return FALSE;
+}
+
 BOOL FilterPacket(struct Packet* packet) {
-    if ( GetPacketProtocol(packet) == UNKNOWN ||
-         GetIPVersion(packet) == UnknownIPV )
+    if (
+         GetIPVersion(packet) == UnknownIPV 
+        )
         return FALSE;
 
     return TRUE; // passthrough
@@ -288,6 +457,15 @@ BOOL IsTLSPayload(struct Packet* packet, int index) {
     return FALSE;
 }
 
+void ParseARPPayload(struct Packet* packet, int index) {
+    if ( index > ETH_HEADER_SIZE + 6 && index < ETH_HEADER_SIZE + 9 )
+        packet->h_proto.arp.opcode[index - ( ETH_HEADER_SIZE + 7 )] = packet->rawData[index];
+    else if ( index > ETH_HEADER_SIZE + 14 && index < ETH_HEADER_SIZE + 19 )
+        packet->h_proto.arp.senderIP[index - ( ETH_HEADER_SIZE + 15 )] = packet->rawData[index];
+    else if ( index > ETH_HEADER_SIZE + 24 )
+        packet->h_proto.arp.targetIP[index - ( ETH_HEADER_SIZE + 25 )] = packet->rawData[index];
+}
+
 struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
     struct Packet packet;
     packet.packetSize   = packetSize;
@@ -302,6 +480,14 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
     for ( int index = 0; index < packetSize; index++ ) {
         if ( index < ETH_HEADER_SIZE )
             ParseEthernetHeader(&packet, index);
+
+        if ( IsARPPacket(&packet) || GetPacketProtocol(&packet) == kARP ) {
+            ParseARPPayload(&packet, index);
+
+            // parsed packet fully nothing else to parse.
+            if ( index >= ETH_HEADER_SIZE + ARP_HEADER_SIZE )
+                break;
+        }
 
         else if ( IsIPV4Header(&packet, index) )
             protoHeaderOffset = ParseIPV4Header(&packet, index);
@@ -322,16 +508,12 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
         else
             ParsePacketPayload(&packet, index, protoHeaderOffset);
     }
+
     return packet;
 }
 
 static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, const u_char* data) {
     struct Packet packet = ParseRawPacket(data, pacInfo->len);
-    if ( packet.ipVer == UnknownIPV ) {
-        // malformed ?
-        free(packet.payload);
-        return;                                                                                             
-    }   
 
     if ( !FilterPacket(&packet) ) {
         free(packet.payload);
@@ -347,7 +529,6 @@ static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, c
 }
 
 void CapturePackets() {
-    MessageBoxA(NULL, "Capturing packets", "Status", MB_OK | MB_ICONINFORMATION);
     // error buffers
     char devErrBuff[PCAP_ERRBUF_SIZE];
     char openLiveErrBuff[PCAP_ERRBUF_SIZE];

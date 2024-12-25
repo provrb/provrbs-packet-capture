@@ -10,7 +10,15 @@ extern "C" {
 
 static uint32_t packetCount = 1;
 
+const char*           GetStringHTTPVersion(enum HTTPVersions ver);
 const char*           GetStringTLSVersion(enum TLSVersions tlsv);
+char*                 GetStringTCPFlagsSet(struct Packet* packet);
+BOOL                  IsSuspectedHTTPRequest(struct Packet* packet);
+BOOL                  IsKeepAlivePacket(struct Packet* packet);
+BOOL                  IsDNSQuery(struct Packet* packet);
+BOOL                  IsTCPFlagSet(struct Packet* packet, enum TCPFlags flag);
+BOOL                  IsARPPacket(struct Packet* packet);
+BOOL                  IsBroadcastMAC(u_char* mac);
 BOOL                  FilterPacket(struct Packet* packet);
 enum IPVersion        GetIPVersion(struct Packet* packet);
 BOOL                  IsIPV6Packet(struct Packet* packet);
@@ -31,5 +39,4 @@ const char*           GetStringProtocol(enum InternetProtocol p);
 #ifdef __cplusplus
 }
 #endif
-
 #endif

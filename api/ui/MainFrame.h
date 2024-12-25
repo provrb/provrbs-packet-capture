@@ -10,6 +10,7 @@
 enum Windows {
     kPacketListPanel = 3,
     kPacketInfoPanel = 0x30,
+    kHexDumpTextPane = 0x92,
 };
 
 enum Menus {
@@ -26,7 +27,6 @@ struct SortData {
     wxListView* listView;
     int column;
     bool ascending;
-    std::vector<long>* itemIndices;
 };
 
 class MainFrame : public wxFrame
@@ -42,7 +42,8 @@ public:
         const wxString& protocol, 
         const wxString& srcPort, 
         const wxString& destPort, 
-        const wxString& packetSize
+        const wxString& packetSize,
+        const wxString& description
     );
 
     void OnHeaderClicked(wxListEvent& event);

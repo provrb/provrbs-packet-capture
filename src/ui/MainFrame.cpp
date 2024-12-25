@@ -50,15 +50,15 @@ MainFrame::MainFrame(const wxString& title)
     wxPanel* packetListPanel = new wxPanel(panel, wxID_ANY, wxDefaultPosition);
 
     wxListView* packetListView = new wxListView(packetListPanel, kPacketListPanel, wxDefaultPosition, wxDefaultSize, wxLC_REPORT);
-    packetListView->AppendColumn("Packet No.", wxLIST_FORMAT_LEFT, 80);
-    packetListView->AppendColumn("IP Version", wxLIST_FORMAT_LEFT, 120);
-    packetListView->AppendColumn("Source Address", wxLIST_FORMAT_LEFT, 155);
-    packetListView->AppendColumn("Dest. Address", wxLIST_FORMAT_LEFT, 155);
+    packetListView->AppendColumn("No.", wxLIST_FORMAT_LEFT, 50);
+    packetListView->AppendColumn("IP Vers.", wxLIST_FORMAT_LEFT, 70);
+    packetListView->AppendColumn("Src. Address", wxLIST_FORMAT_LEFT, 130);
+    packetListView->AppendColumn("Dest. Address", wxLIST_FORMAT_LEFT, 130);
     packetListView->AppendColumn("Protocol", wxLIST_FORMAT_LEFT, 75);
-    packetListView->AppendColumn("Src. Port", wxLIST_FORMAT_LEFT, 80);
-    packetListView->AppendColumn("Dest. Port", wxLIST_FORMAT_LEFT, 80);
-    packetListView->AppendColumn("Packet Size", wxLIST_FORMAT_LEFT, 200);
-    //packetListView->Bind(wxEVT_LIST_COL_CLICK, &MainFrame::OnHeaderClicked, this);
+    packetListView->AppendColumn("Src. Port", wxLIST_FORMAT_LEFT, 70);
+    packetListView->AppendColumn("Dest. Port", wxLIST_FORMAT_LEFT, 70);
+    packetListView->AppendColumn("Packet Size", wxLIST_FORMAT_LEFT, 90);
+    packetListView->AppendColumn("Description", wxLIST_FORMAT_LEFT, 260);
 
     // packet information panel
     wxPanel* packetInfoPanel = new wxPanel(panel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
@@ -66,7 +66,7 @@ MainFrame::MainFrame(const wxString& title)
 
     // hex dump panel
     wxPanel* hexDumpPanel = new wxPanel(packetInfoPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
-    wxTextCtrl* hexDumpText = new wxTextCtrl(hexDumpPanel, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
+    wxTextCtrl* hexDumpText = new wxTextCtrl(hexDumpPanel, kHexDumpTextPane, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
 
     // Set hexDumpText to fill the hexDumpPanel
     wxBoxSizer* hexDumpSizer = new wxBoxSizer(wxVERTICAL);
@@ -168,11 +168,15 @@ void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
 
     // show top right packet info
     wxTextCtrl* packetInfoText = ( wxTextCtrl* ) FindWindow(kPacketInfoPanel);
+    wxTextCtrl* hexDumpText = ( wxTextCtrl* ) FindWindow(kHexDumpTextPane);
 
     wxFont font(12, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "Consolas");
     font.Scale(.9);
     packetInfoText->SetFont(font);
+    hexDumpText->SetFont(font);
 
+    hexDumpText->Clear();
+    hexDumpText->Freeze();
     packetInfoText->Clear();
     packetInfoText->Freeze();
 
@@ -189,7 +193,7 @@ void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
     packetInfoText->SetDefaultStyle(defaultStyle);
 
     wxString ethDest = "Destionation MAC: " + MakeReadableMACAddress(packet.h_ethernet.dest);
-    wxString ethSrc = "Source MAC: " + MakeReadableMACAddress(packet.h_ethernet.source);
+    wxString ethSrc  = "Source MAC: " + MakeReadableMACAddress(packet.h_ethernet.source);
     wxString ethType = "Type: " + std::string(GetStringIPV(GetIPVersion(&packet)));
 
     packetInfoText->WriteText(ethSrc + "\n");
@@ -222,6 +226,13 @@ void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
         packetInfoText->WriteText("\n\nTransmission Control Protocol Header,");
         packetInfoText->WriteText("\nSource Port: " + wxString::Format("%d", GetSourcePort(&packet)));
         packetInfoText->WriteText("\nDestination Port: " + wxString::Format("%d", GetDestPort(&packet)));
+       
+        char* flags = GetStringTCPFlagsSet(&packet);
+        if ( flags != NULL ) {
+            packetInfoText->WriteText("\nFlags Set: " + wxString::Format("%s", flags));
+            free(flags);
+        }
+        
         packetInfoText->WriteText("\nSequence Number: 0x" + 
             wxString::Format("%02x%02x%02x%02x", 
                 packet.h_proto.tcp.sequenceNum[0], packet.h_proto.tcp.sequenceNum[1], 
@@ -249,6 +260,12 @@ void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
         packetInfoText->WriteText("\nTLS Encrypted Payload Length: " + wxString::Format("%d", ( packet.tls.encryptedPayloadLen[0] << 8 ) | packet.tls.encryptedPayloadLen[1]));
     }
 
+    if ( packet.likelyHTTP ) {
+        packetInfoText->WriteText("\n\nHypertext Transfer Protocol,");
+        packetInfoText->WriteText("\nHTTP Version: " + wxString::Format("%s", GetStringHTTPVersion(packet.httpVer)));
+        packetInfoText->WriteText("\nCheck Hex Dump For More");
+    }
+
     // simple. print at bottom
     if ( IsIPV4Packet(&packet) ) {
         packetInfoText->WriteText("\n\nIPV4 ");
@@ -271,10 +288,47 @@ void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
     if ( packet.tls.usesTLS )
         packetInfoText->WriteText("\nTransport Layer Security (TLS) Encrypted Payload");
 
+    std::string ascii = "";  
+    std::string hex = "";    
+
+    for ( int i = 0; i < packet.packetSize; i++ ) {
+        u_char asciiChar = ( u_char ) packet.rawData[i];
+
+        if ( isprint(asciiChar) )
+            ascii += asciiChar;
+        else
+            ascii += ".";
+
+        hex += wxString::Format("%02X ", packet.rawData[i]);
+
+        if ( ( i + 1 ) % 16 == 0 || i == packet.packetSize - 1 ) {
+            hexDumpText->WriteText(wxString::Format("0x%04X  %-49s  %s\n", i - ( i % 16 ), hex, ascii));
+
+            ascii = "";
+            hex = "";
+            ascii.clear();
+            hex.clear();
+        }
+        else if ( (i + 1) % 8 == 0 ) {
+            hex += " ";
+        }
+    }
+
+    hexDumpText->Thaw();
     packetInfoText->Thaw();
 }
 
-void MainFrame::InsertPacket(const wxString& packetNo, const wxString& ipv, const wxString& srcAddr, const wxString& destAddr, const wxString& protocol, const wxString& srcPort, const wxString& destPort, const wxString& packetSize)
+void MainFrame::InsertPacket(
+    const wxString& packetNo, 
+    const wxString& ipv, 
+    const wxString& srcAddr, 
+    const wxString& destAddr, 
+    const wxString& protocol, 
+    const wxString& srcPort,
+    const wxString& destPort,
+    const wxString& packetSize,
+    const wxString& description
+)
 {
     wxListView* packetListView = ( wxListView* ) FindWindow(kPacketListPanel);
 
@@ -288,6 +342,12 @@ void MainFrame::InsertPacket(const wxString& packetNo, const wxString& ipv, cons
     wxColour colour = GetColorFromProtocol(protocol);
     if ( protocol.Contains("TLS") ) // tls takes priority with colour
         colour = wxColour(193, 234, 245);
+    else if ( protocol.Contains("ARP") )
+        colour = wxColour(255, 177, 61);
+
+    if ( description.Contains("HTTP") )
+        colour = wxColour(76, 245, 169);
+
 
     item.SetBackgroundColour(colour);
 
@@ -301,6 +361,7 @@ void MainFrame::InsertPacket(const wxString& packetNo, const wxString& ipv, cons
     packetListView->SetItem(index, 5, srcPort);
     packetListView->SetItem(index, 6, destPort);
     packetListView->SetItem(index, 7, packetSize + " bytes");
+    packetListView->SetItem(index, 8, description);
 }
 
 wxString MainFrame::MakeReadableIPV4Address(u_char* ipv4Addr)
