@@ -42,7 +42,7 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
 
     wxString srcAddr = "";
     wxString destAddr = "";
-    wxString protocol = GetStringProtocol(packet->protocol);
+    wxString protocol = GetEnumName<InternetProtocol>(InternetProtocolNames, packet->protocol);
     wxString info = "";
 
     if ( IsIPV6Packet(packet) ) {
@@ -66,12 +66,14 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
     } 
     
     if ( IsSuspectedHTTPRequest(packet) )
-        info += "HTTP Payload Suspected " + wxString::Format("%s", GetStringHTTPVersion(packet->httpVer)) + " ";
+        info += "HTTP Payload Suspected " + wxString::Format("%s", GetEnumName<HTTPVersions>(HTTPVersionNames, packet->httpVer)) + " ";
     else if ( IsKeepAlivePacket(packet) )
         info += "Keep-Alive Packet ";
     else if ( IsDNSQuery(packet) )
         info += "DNS Standard Query";
-    
+    else if ( GetPacketProtocol(packet) == ICMP6 || GetPacketProtocol(packet) == ICMP )
+        info += GetEnumName<ICMPTypes>(ICMPTypeNames, (ICMPTypes)packet->h_proto.icmp.type);
+
     if ( IsARPPacket(packet) )
         info = "Who has " + mainFrame->MakeReadableIPV4Address(packet->h_proto.arp.senderIP) + "? Tell " + mainFrame->MakeReadableIPV4Address(packet->h_proto.arp.targetIP);
 
@@ -82,7 +84,7 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
 
     mainFrame->InsertPacket(
         std::to_string(copied.packetNumber),
-        GetStringIPV(copied.ipVer),
+        GetEnumName<IPVersion>(IPVersionNames, copied.ipVer),
         srcAddr,
         destAddr,
         protocol,

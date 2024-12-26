@@ -30,6 +30,15 @@ void PrintPacketInfo(struct Packet* packet) {
         printf("Checksum         : 0x%02x%02x\n", packet->h_proto.icmp.checksum[0], packet->h_proto.icmp.checksum[1]);
         printf("Flags            : 0x%02x%02x%02x%02x\n", packet->h_proto.icmp.flags[0], packet->h_proto.icmp.flags[1], packet->h_proto.icmp.flags[2], packet->h_proto.icmp.flags[3]);
     }
+    else if ( GetPacketProtocol(packet) == ICMP6 ) {
+        printf("Target Address: %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x\n", 
+            packet->h_proto.icmp.targetAddr[0], packet->h_proto.icmp.targetAddr[1], packet->h_proto.icmp.targetAddr[2], packet->h_proto.icmp.targetAddr[3],
+            packet->h_proto.icmp.targetAddr[4], packet->h_proto.icmp.targetAddr[5], packet->h_proto.icmp.targetAddr[6], packet->h_proto.icmp.targetAddr[7],
+            packet->h_proto.icmp.targetAddr[8], packet->h_proto.icmp.targetAddr[9], packet->h_proto.icmp.targetAddr[10], packet->h_proto.icmp.targetAddr[11],
+            packet->h_proto.icmp.targetAddr[12], packet->h_proto.icmp.targetAddr[13], packet->h_proto.icmp.targetAddr[14], packet->h_proto.icmp.targetAddr[15]
+            );
+        printf("Checksum         : 0x%02x%02x\n", packet->h_proto.icmp.checksum[0], packet->h_proto.icmp.checksum[1]);
+    }
     else if ( GetPacketProtocol(packet) == TCP ) {
         char* flags = GetStringTCPFlagsSet(packet);
         if ( flags != NULL ) {
@@ -40,13 +49,11 @@ void PrintPacketInfo(struct Packet* packet) {
         printf("Checksum         : 0x%02x%02x\n", packet->h_proto.tcp.checksum[0], packet->h_proto.tcp.checksum[1]);
         printf("Window           : %d\n", ( packet->h_proto.tcp.window[0] << 8 ) | packet->h_proto.tcp.window[1]);
         printf("Urgent Pointer   : %d\n", ( packet->h_proto.tcp.urgentPtr[0] << 8 ) | packet->h_proto.tcp.urgentPtr[1]);
-        
     }
 
     if ( packet->tls.usesTLS ) {
         enum TLSVersions ver = packet->tls.tlsVersionID;
         printf("TLS Encrypted.\n");
-        printf("TLS Version      : %s\n", GetStringTLSVersion(ver));
         printf("TLS Length       : %02x%02x\n", packet->tls.encryptedPayloadLen[0], packet->tls.encryptedPayloadLen[1]);
         printf("Content Type     : %d\n", packet->tls.contentType);
     }
@@ -75,8 +82,6 @@ void PrintPacketInfo(struct Packet* packet) {
     }
     
     
-    printf("IP Version       : %s\n", GetStringIPV(GetIPVersion(packet)));
-    printf("Protocol         : %s\n", GetStringProtocol(GetPacketProtocol(packet)));
     printf("Payload size     : %d\n", packet->payloadSize);
 
     printf("\nDumped Contents (Hex)");

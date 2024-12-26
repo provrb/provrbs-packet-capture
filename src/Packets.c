@@ -15,45 +15,6 @@ enum IPVersion GetIPVersion(struct Packet* packet) {
     return UnknownIPV;
 }
 
-const char* GetStringHTTPVersion(enum HTTPVersions ver) {
-    const char* str = "Unknown";
-    switch ( ver )
-    {
-    case HTTP1_0:
-        str = "HTTP/1.0";
-        break;
-    case HTTP1_1:
-        str = "HTTP/1.1";
-        break;
-    case HTTP2:
-        str = "HTTP/2";
-        break;
-    case HTTP3:
-        str = "HTTP/3";
-        break;
-    }
-    return str;
-}
-
-const char* GetStringTLSVersion(enum TLSVersions tlsv) {
-    const char* str = "Unknown";
-    switch ( tlsv ) {
-    case TLS1_0: 
-        str = "TLS 1.0";
-        break;
-    case TLS1_1:
-        str = "TLS 1.1";
-        break;
-    case TLS1_2:
-        str = "TLS 1.2";
-        break;
-    case TLS1_3:
-        str = "TLS 1.3";
-        break;
-    }
-    return str;
-}
-
 BOOL IsTCPFlagSet(struct Packet* packet, enum TCPFlags flag)
 {
     u_char* tcpHeader = "";
@@ -72,28 +33,16 @@ BOOL IsBroadcastMAC(u_char* mac) {
     return ( mac[0] == 0xff && mac[1] == 0xff && mac[2] == 0xff && mac[3] == 0xff && mac[4] == 0xff && mac[5] == 0xff );
 }
 
+BOOL IncludesLinkLayerAddr(struct Packet* packet) {
+    return ( packet->h_proto.icmp.type2 == SourceLinkLayerAddress );
+}
+
 BOOL IsARPPacket(struct Packet* packet)
 {
     if ( packet->h_ethernet.type[0] == 8 && packet->h_ethernet.type[1] == 6 )
         return TRUE;
 
     return FALSE;
-}
-
-const char* GetStringIPV(enum IPVersion ipv) {
-    const char* str = "Unknown";
-    switch ( ipv ) {
-    case kIPV4:
-        str = "IPv4";
-        break;
-    case kIPV6:
-        str = "IPv6";
-        break;
-    case kARP:
-        str = "ARP";
-        break;
-    }
-    return str;
 }
 
 BOOL IsPacketMalformed(struct Packet* packet, uint32_t expectedSize) {
@@ -217,29 +166,11 @@ BOOL IsUDPHeader(struct Packet* packet, int index, uint32_t offset) {
 }
 
 BOOL IsICMPHeader(struct Packet* packet, int index, uint32_t offset) {
-    return ( GetPacketProtocol(packet) == ICMP && index >= offset && index < offset + ICMP_HEADER_SIZE );
+    return ( IsIPV4Packet(packet) && GetPacketProtocol(packet) == ICMP && index >= offset && index < offset + ICMP_HEADER_SIZE );
 }
 
-const char* GetStringProtocol(enum InternetProtocol p) {
-    const char* str = "Unknown";
-    switch ( p ) {
-    case TCP:
-        str = "TCP";
-        break;
-    case UDP:
-        str = "UDP";
-        break;
-    case ICMP:
-        str = "ICMP";
-        break;
-    case IGMP:
-        str = "IGMP";
-        break;
-    case ARP:
-        str = "ARP";
-        break;
-    }
-    return str;
+BOOL IsICMP6Header(struct Packet* packet, int index, uint32_t offset) {
+    return ( IsIPV6Packet(packet) && GetPacketProtocol(packet) == ICMP6 && index >= offset && index <= offset + ICMP6_HEADER_SIZE );
 }
 
 /*
@@ -334,6 +265,7 @@ BOOL IsIPV4Packet(struct Packet* packet) {
 uint32_t GetDestPort(struct Packet* packet) {
     if ( GetPacketProtocol(packet) == ARP )
         return 0; // no port
+
     if ( GetPacketProtocol(packet) == UDP )
         return HexPortToInt(packet->h_proto.udp.destPort);
     else if ( GetPacketProtocol(packet) == TCP )
@@ -359,7 +291,7 @@ enum InternetProtocol GetPacketProtocol(struct Packet* packet) {
 
     if ( IsIPV4Packet(packet) )      protocol = packet->h_ip.ip4.protocol;
     else if ( IsIPV6Packet(packet) && packet->h_ip.ip6.nextHeader == ICMPHEADER2 ) protocol = ICMP;
-    else if ( IsIPV6Packet(packet) && packet->h_ip.ip6.nextHeader == ICMP ) protocol = ICMP;
+    else if ( IsIPV6Packet(packet) && packet->h_ip.ip6.nextHeader == ICMP ) protocol = ICMP6;
     else if ( IsIPV6Packet(packet) ) protocol = packet->h_ip.ip6.nextHeader;
 
     return protocol;
@@ -435,9 +367,7 @@ BOOL IsKeepAlivePacket(struct Packet* packet) {
 }
 
 BOOL FilterPacket(struct Packet* packet) {
-    if (
-         GetIPVersion(packet) == UnknownIPV 
-        )
+    if ( GetIPVersion(packet) == UnknownIPV )
         return FALSE;
 
     return TRUE; // passthrough
@@ -503,8 +433,28 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
         else if ( IsUDPHeader(&packet, index, protoHeaderOffset) )
             ParseUDPHeader(&packet, index, protoHeaderOffset);
 
+        else if ( IsICMP6Header(&packet, index, protoHeaderOffset) ) {
+            if ( index == protoHeaderOffset )
+                packet.h_proto.icmp.type = packet.rawData[index];
+            else if ( index == protoHeaderOffset + 1 )
+                packet.h_proto.icmp.code = packet.rawData[index];
+            else if ( index >= protoHeaderOffset + 2 && index < protoHeaderOffset + 4 )
+                packet.h_proto.icmp.checksum[index - ( protoHeaderOffset + 2 )] = packet.rawData[index];
+            else if ( index > protoHeaderOffset + 3 && index < protoHeaderOffset + 8 )
+                packet.h_proto.icmp.flags[index - ( protoHeaderOffset + 4 )] = packet.rawData[index];
+            else if ( index > protoHeaderOffset + 7 && index < protoHeaderOffset + 24 )
+                packet.h_proto.icmp.targetAddr[index - ( protoHeaderOffset + 8 )] = packet.rawData[index];
+            else if ( index == protoHeaderOffset + 24 ) // includes link layer address
+                packet.h_proto.icmp.type2 = packet.rawData[index];
+            else if ( IncludesLinkLayerAddr(&packet) && index == protoHeaderOffset + 25 )
+                packet.h_proto.icmp.llPayloadSize = packet.rawData[index];
+            else if ( IncludesLinkLayerAddr(&packet) && index > protoHeaderOffset + 25 && index < protoHeaderOffset + 25 + 9 )
+                packet.h_proto.icmp.lladdress[index - ( protoHeaderOffset + 26 )] = packet.rawData[index];
+        }
+
         else if ( IsICMPHeader(&packet, index, protoHeaderOffset) )
             ParseICMPHeader(&packet, index, protoHeaderOffset);
+
         else
             ParsePacketPayload(&packet, index, protoHeaderOffset);
     }

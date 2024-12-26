@@ -10,8 +10,6 @@ extern "C" {
 
 static uint32_t packetCount = 1;
 
-const char*           GetStringHTTPVersion(enum HTTPVersions ver);
-const char*           GetStringTLSVersion(enum TLSVersions tlsv);
 char*                 GetStringTCPFlagsSet(struct Packet* packet);
 BOOL                  IsSuspectedHTTPRequest(struct Packet* packet);
 BOOL                  IsKeepAlivePacket(struct Packet* packet);
@@ -19,6 +17,7 @@ BOOL                  IsDNSQuery(struct Packet* packet);
 BOOL                  IsTCPFlagSet(struct Packet* packet, enum TCPFlags flag);
 BOOL                  IsARPPacket(struct Packet* packet);
 BOOL                  IsBroadcastMAC(u_char* mac);
+BOOL                  IncludesLinkLayerAddr(struct Packet* packet);
 BOOL                  FilterPacket(struct Packet* packet);
 enum IPVersion        GetIPVersion(struct Packet* packet);
 BOOL                  IsIPV6Packet(struct Packet* packet);
@@ -33,8 +32,6 @@ u_char*               GetDestIPAddress(struct Packet* packet);
 struct Packet         ParseRawPacket(u_char* rawData, uint32_t packetSize);
 static pcap_handler   HandlePacket(u_char* byteStrHandle, const struct pcap_pkthdr* pacInfo, const u_char* data);
 void                  CapturePackets();
-const char*           GetStringIPV(enum IPVersion ipv);
-const char*           GetStringProtocol(enum InternetProtocol p);
 
 #ifdef __cplusplus
 }

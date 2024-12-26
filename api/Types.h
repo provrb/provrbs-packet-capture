@@ -9,6 +9,7 @@
 #define TCP_MIN_HEADER_SIZE 20
 #define ICMP_HEADER_SIZE 8
 #define ARP_HEADER_SIZE 27
+#define ICMP6_HEADER_SIZE 31
 
 #define DNS_QUERY_PORT 53
 
@@ -53,21 +54,34 @@ enum HTTPVersions {
     HTTP3   = 0x0300
 };
 
-enum InternetProtocol 
-{
+enum ICMPTypes {
+    DestinationUnreachable = 1,
+    PacketTooBig = 2,
+    TimeExceeded = 3,
+    ParameterProblem = 4,
+    EchoRequest = 128,
+    EchoReply = 129,
+    RouterSolicitation = 133,
+    RouterAdvertisement = 134,
+    NeighborSolicitation = 135,
+    NeighborAdvertisement = 136,
+    RedirectMessage = 137
+};
+
+enum ICMP6Type2 {
+    SourceLinkLayerAddress = 1
+};
+
+enum InternetProtocol {
     ICMPHEADER2 = 0,
     UNKNOWN = -1,
     IGMP = 2,
     TCP = 6,
     UDP = 17,
     ICMP = 58,
+    ICMP6 = 49,
     ARP = 99,
     HTTP
-};
-
-enum Events 
-{
-    EVT_PACKET_RECEIVED = 0x40,
 };
 
 /**
@@ -188,8 +202,12 @@ struct Packet
         struct {
             u_char type;
             u_char code;
+            u_char targetAddr[16];
             u_char checksum[2];
             u_char flags[4];
+            u_char type2; // only for icmpv6
+            u_char llPayloadSize; // link layer payload size only for icmpv6
+            u_char lladdress[6]; // link layer address only for icmpv6
         } icmp;
     } h_proto;
 };

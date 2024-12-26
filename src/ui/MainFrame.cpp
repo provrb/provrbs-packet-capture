@@ -68,6 +68,14 @@ MainFrame::MainFrame(const wxString& title)
     wxPanel* hexDumpPanel = new wxPanel(packetInfoPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
     wxTextCtrl* hexDumpText = new wxTextCtrl(hexDumpPanel, kHexDumpTextPane, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
 
+    hexDumpText->Bind(wxEVT_CONTEXT_MENU, &MainFrame::HexDumpRightClicked, this);
+
+    wxFont font(12, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "Consolas");
+    font.Scale(.9);
+
+    packetInfoText->SetFont(font);
+    hexDumpText->SetFont(font);
+
     // Set hexDumpText to fill the hexDumpPanel
     wxBoxSizer* hexDumpSizer = new wxBoxSizer(wxVERTICAL);
     hexDumpSizer->Add(hexDumpText, 1, wxEXPAND | wxALL, 0);
@@ -120,6 +128,14 @@ void MainFrame::OnHeaderClicked(wxListEvent& event)
     packetListView->Refresh();
 }
 
+void MainFrame::HexDumpRightClicked(wxCommandEvent& event) {
+    wxMenu menu;
+    menu.Append(wxID_COPY, "&Copy Raw Hex");
+    menu.Bind(wxEVT_MENU, &MainFrame::CopyRawHex, this, wxID_COPY);
+    
+    PopupMenu(&menu);
+}
+
 int wxCALLBACK MainFrame::SortItem(wxIntPtr item1Index, wxIntPtr item2Index, wxIntPtr data) {
     SortData* sortData = ( SortData* ) data;
     wxListView* listView = sortData->listView;
@@ -140,12 +156,140 @@ wxColour GetColorFromProtocol(const wxString& protocol) {
         return wxColour{ 255, 252, 180 };
     else if ( protocol == "UDP" )
         return wxColour{ 219, 253, 219 };
-    else if ( protocol == "ICMP" )
+    else if ( protocol == "ICMP" || protocol == "ICMPv6" )
         return wxColour{ 180, 180, 255 };
     else if ( protocol == "IGMP" )
         return wxColour{ 255, 180, 180 };
 
     return wxColour{ 255, 255, 255 };
+}
+
+void MainFrame::WriteARPHeader(wxTextCtrl* packetInfoText, Packet packet) {
+    packetInfoText->WriteText("\n\nAddress Resolution Protocol");
+    packetInfoText->WriteText("\nOpcode: " + wxString::Format("0x%02x%02x", packet.h_proto.arp.opcode[0], packet.h_proto.arp.opcode[1]));
+    packetInfoText->WriteText("\nSender MAC Address: " + MakeReadableMACAddress(packet.h_ethernet.source));
+    packetInfoText->WriteText("\nDestination MAC Address: " + MakeReadableMACAddress(packet.h_ethernet.dest));
+    packetInfoText->WriteText("\nSender IP Address: " + std::string(MakeReadableIPV4Address(packet.h_proto.arp.senderIP)));
+    packetInfoText->WriteText("\nDestination IP Address: " + std::string(MakeReadableIPV4Address(packet.h_proto.arp.targetIP)));
+}
+
+void MainFrame::WriteTCPHeader(wxTextCtrl* packetInfoText, Packet packet) {
+    packetInfoText->WriteText("\n\nTransmission Control Protocol Header,");
+    packetInfoText->WriteText("\nSource Port: " + wxString::Format("%d", GetSourcePort(&packet)));
+    packetInfoText->WriteText("\nDestination Port: " + wxString::Format("%d", GetDestPort(&packet)));
+
+    char* flags = GetStringTCPFlagsSet(&packet);
+    if ( flags != NULL ) {
+        packetInfoText->WriteText("\nFlags Set: " + wxString::Format("%s", flags));
+        free(flags);
+    }
+
+    packetInfoText->WriteText("\nSequence Number: 0x" +
+        wxString::Format("%02x%02x%02x%02x",
+            packet.h_proto.tcp.sequenceNum[0], packet.h_proto.tcp.sequenceNum[1],
+            packet.h_proto.tcp.sequenceNum[2], packet.h_proto.tcp.sequenceNum[3])
+    );
+
+    packetInfoText->WriteText("\nAcknowledgement Number: 0x" +
+        wxString::Format("%02x%02x%02x%02x",
+            packet.h_proto.tcp.ackNum[0], packet.h_proto.tcp.ackNum[1],
+            packet.h_proto.tcp.ackNum[2], packet.h_proto.tcp.ackNum[3])
+    );
+
+    packetInfoText->WriteText("\nHeader length: " + wxString::Format("%d", packet.h_proto.tcp.len));
+    packetInfoText->WriteText("\nCongestion Window Reduced: " + wxString::Format("%d", packet.h_proto.tcp.congWinFlag));
+    packetInfoText->WriteText("\nWindow: " + wxString::Format("%d", HexPortToInt(packet.h_proto.tcp.window)));
+    packetInfoText->WriteText("\nChecksum: 0x" + wxString::Format("%02x%02x", packet.h_proto.tcp.checksum[0], packet.h_proto.tcp.checksum[1]));
+    packetInfoText->WriteText("\nUrgent Pointer: " + wxString::Format("%d", ( packet.h_proto.tcp.urgentPtr[0] << 8 ) | packet.h_proto.tcp.urgentPtr[1]));
+}
+
+void MainFrame::WriteEthernetHeader(wxTextCtrl* packetInfoText, Packet packet) {
+    packetInfoText->WriteText("Ethernet II header,");
+    packetInfoText->WriteText("\nDestionation MAC: " + MakeReadableMACAddress(packet.h_ethernet.dest));
+    packetInfoText->WriteText("\nSource MAC: " + MakeReadableMACAddress(packet.h_ethernet.source));
+    packetInfoText->WriteText("\nType: " + std::string(GetEnumName<IPVersion>(IPVersionNames, GetIPVersion(&packet))));
+}
+
+void MainFrame::WriteIPV4Header(wxTextCtrl* packetInfoText, Packet packet) {
+    packetInfoText->WriteText("\n\nInternet Protocol Header 4,");
+    packetInfoText->WriteText("\nSource IPv4: " + std::string(MakeReadableIPV4Address(packet.h_ip.ip4.sourceIP)));
+    packetInfoText->WriteText("\nDestination IPv4: " + std::string(MakeReadableIPV4Address(packet.h_ip.ip4.destIP)));
+    packetInfoText->WriteText("\nIdentification: 0x" + wxString::Format("%02x%02x", packet.h_ip.ip4.id[0], packet.h_ip.ip4.id[1]));
+    packetInfoText->WriteText("\nTime to live (hops): " + wxString::Format("%d", packet.h_ip.ip4.ttl));
+    packetInfoText->WriteText("\nChecksum: 0x" + wxString::Format("%02x%02x", packet.h_ip.ip4.checksum[0], packet.h_ip.ip4.checksum[1]));
+    packetInfoText->WriteText("\nFlags: 0x" + wxString::Format("%02x%02x", packet.h_ip.ip4.flags[0], packet.h_ip.ip4.flags[1]));
+    packetInfoText->WriteText("\nService Type: 0x" + wxString::Format("%02x", packet.h_ip.ip4.serviceType));
+}
+
+void MainFrame::WriteIPV6Header(wxTextCtrl* packetInfoText, Packet packet) {
+    packetInfoText->WriteText("\n\nInternet Protocol Header 6,");
+    packetInfoText->WriteText("\nSource IPv6: " + std::string(( char* ) GetSourceIPAddress(&packet)));
+    packetInfoText->WriteText("\nDestination IPv6: " + std::string(( char* ) GetDestIPAddress(&packet)));
+    packetInfoText->WriteText("\nFlow label: 0x" + wxString::Format("%02x%02x%02x", packet.h_ip.ip6.flowLabel[0], packet.h_ip.ip6.flowLabel[1], packet.h_ip.ip6.flowLabel[2]));
+    packetInfoText->WriteText("\nNext header: " + wxString::Format("%d", packet.h_ip.ip6.nextHeader));
+    packetInfoText->WriteText("\nHop limit: " + wxString::Format("%d", packet.h_ip.ip6.hopLimit));
+}
+
+void MainFrame::WriteICMPHeader(wxTextCtrl* packetInfoText, Packet packet) {
+    packetInfoText->WriteText("\n\nInternet Control Message Protocol Header,");
+
+    if ( GetPacketProtocol(&packet) == ICMP6 ) {
+        packetInfoText->WriteText("\nTarget Address: " + std::string((char*)CompressIPV6Address(packet.h_proto.icmp.targetAddr)));
+        packetInfoText->WriteText("\nLink-layer Address: " +
+            wxString::Format("%02x:%02x:%02x:%02x:%02x:%02x", 
+                packet.h_proto.icmp.lladdress[0], packet.h_proto.icmp.lladdress[1],
+                packet.h_proto.icmp.lladdress[2], packet.h_proto.icmp.lladdress[3], 
+                packet.h_proto.icmp.lladdress[4], packet.h_proto.icmp.lladdress[5]));
+    }
+    
+    packetInfoText->WriteText("\nChecksum: " + wxString::Format("0x%02x%02x", packet.h_proto.icmp.checksum[0], packet.h_proto.icmp.checksum[1]));
+    
+    packetInfoText->WriteText("\nType: " + wxString::Format("%d (%s)", packet.h_proto.icmp.type,
+        GetEnumName<ICMPTypes>(ICMPTypeNames, (ICMPTypes)packet.h_proto.icmp.type))
+    );
+
+    packetInfoText->WriteText("\nCode: " + wxString::Format("%d", packet.h_proto.icmp.code));
+    packetInfoText->WriteText("\nFlags: 0x" + wxString::Format("%02x%02x%02x%02x",
+        packet.h_proto.icmp.flags[0],
+        packet.h_proto.icmp.flags[1],
+        packet.h_proto.icmp.flags[2],
+        packet.h_proto.icmp.flags[3]
+    ));
+}
+
+void MainFrame::WriteUDPHeader(wxTextCtrl* packetInfoText, Packet packet) {
+    packetInfoText->WriteText("\n\nUser Datagram Protocol,");
+    packetInfoText->WriteText("\nSource Port: " + std::to_string(GetSourcePort(&packet)));
+    packetInfoText->WriteText("\nDestination Port: " + std::to_string(GetDestPort(&packet)));
+    packetInfoText->WriteText("\nChecksum: 0x" + wxString::Format("%02x%02x", packet.h_proto.udp.checksum[0], packet.h_proto.udp.checksum[1]));
+}
+
+void MainFrame::WritePacketInfoFooter(wxTextCtrl* packetInfoText, Packet packet) {
+    if ( IsIPV4Packet(&packet) ) { // "IPV4 000.000.000.000 > 000.000.000.000"
+        packetInfoText->WriteText("\n\nIPV4 ");
+        packetInfoText->WriteText(MakeReadableIPV4Address(packet.h_ip.ip4.sourceIP));
+        packetInfoText->WriteText(" > ");
+        packetInfoText->WriteText(MakeReadableIPV4Address(packet.h_ip.ip4.destIP));
+    }
+    else if ( IsIPV6Packet(&packet) ) { // "IPV6 d::d::d::d:: > d::d::d::d::"
+        packetInfoText->WriteText("\n\nIPV6 ");
+        packetInfoText->WriteText(GetSourceIPAddress(&packet));
+        packetInfoText->WriteText(" > ");
+        packetInfoText->WriteText(GetDestIPAddress(&packet));
+    }
+    else if ( IsARPPacket(&packet) ) // "ARP Who has 000.000.000.000? Tell 000.000.000.000"
+        packetInfoText->WriteText("\n\nARP Who has " + MakeReadableIPV4Address(packet.h_proto.arp.senderIP) + "? Tell " + MakeReadableIPV4Address(packet.h_proto.arp.targetIP));
+
+    // Protocols
+    if ( GetPacketProtocol(&packet) == TCP ) packetInfoText->WriteText("\nTransmission Control Protocol (TCP)");
+    else if ( GetPacketProtocol(&packet) == UDP ) packetInfoText->WriteText("\nUser Datagram Protocol (UDP)");
+    else if ( GetPacketProtocol(&packet) == ICMP ) packetInfoText->WriteText("\nInternet Control Message Protocol (ICMP)");
+    else if ( GetPacketProtocol(&packet) == HTTP ) packetInfoText->WriteText("\nHypertext Transfer Protocol (HTTP)");
+    else if ( GetPacketProtocol(&packet) == ARP ) packetInfoText->WriteText("\nAddress Resolution Protocol (ARP)");
+    else if ( GetPacketProtocol(&packet) == IGMP ) packetInfoText->WriteText("\nInternet Group Management Protocol (IGMP)");
+
+    // "Transport Layer Security (TLS) Encrypted Payload"
+    if ( packet.tls.usesTLS ) packetInfoText->WriteText("\nTransport Layer Security (TLS) Encrypted Payload");
 }
 
 void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
@@ -168,125 +312,39 @@ void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
 
     // show top right packet info
     wxTextCtrl* packetInfoText = ( wxTextCtrl* ) FindWindow(kPacketInfoPanel);
-    wxTextCtrl* hexDumpText = ( wxTextCtrl* ) FindWindow(kHexDumpTextPane);
+    wxTextCtrl* hexDumpText    = ( wxTextCtrl* ) FindWindow(kHexDumpTextPane);
 
-    wxFont font(12, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "Consolas");
-    font.Scale(.9);
-    packetInfoText->SetFont(font);
-    hexDumpText->SetFont(font);
+    // clear and freeze text to get ready to write
+    hexDumpText->Clear();  packetInfoText->Clear();
+    hexDumpText->Freeze(); packetInfoText->Freeze();
 
-    hexDumpText->Clear();
-    hexDumpText->Freeze();
-    packetInfoText->Clear();
-    packetInfoText->Freeze();
+    WriteEthernetHeader(packetInfoText, packet);
 
-    wxTextAttr defaultStyle;
-    defaultStyle.SetBackgroundColour(packetInfoText->GetBackgroundColour());
-    defaultStyle.SetTextColour(*wxBLACK);
+    // Printing ip headers or ARP if it exists
+    if ( IsARPPacket(&packet) )       WriteARPHeader(packetInfoText, packet);
+    if ( IsIPV4Packet(&packet) )      WriteIPV4Header(packetInfoText, packet);
+    else if ( IsIPV6Packet(&packet) ) WriteIPV6Header(packetInfoText, packet);
 
-    wxTextAttr headerStyle;
-    headerStyle.SetBackgroundColour(*wxLIGHT_GREY);
-    headerStyle.SetTextColour(*wxBLACK);
-
-    packetInfoText->SetDefaultStyle(headerStyle);
-    packetInfoText->WriteText("Ethernet II header,\n");
-    packetInfoText->SetDefaultStyle(defaultStyle);
-
-    wxString ethDest = "Destionation MAC: " + MakeReadableMACAddress(packet.h_ethernet.dest);
-    wxString ethSrc  = "Source MAC: " + MakeReadableMACAddress(packet.h_ethernet.source);
-    wxString ethType = "Type: " + std::string(GetStringIPV(GetIPVersion(&packet)));
-
-    packetInfoText->WriteText(ethSrc + "\n");
-    packetInfoText->WriteText(ethDest + "\n");
-    packetInfoText->WriteText(ethType + "\n");
-
-    packetInfoText->SetDefaultStyle(headerStyle);
-    packetInfoText->WriteText("\nInternet Protocol Header (" + std::string(GetStringIPV(GetIPVersion(&packet)) + std::string("),\n")));
-    packetInfoText->SetDefaultStyle(defaultStyle);
-
-    if ( IsIPV4Packet(&packet) ) {
-        packetInfoText->WriteText("Source IPv4: " + std::string(MakeReadableIPV4Address(packet.h_ip.ip4.sourceIP)));
-        packetInfoText->WriteText("\nDestination IPv4: " + std::string(MakeReadableIPV4Address(packet.h_ip.ip4.destIP)));
-        packetInfoText->WriteText("\nIdentification: 0x" + wxString::Format("%02x%02x", packet.h_ip.ip4.id[0], packet.h_ip.ip4.id[1]));
-        packetInfoText->WriteText("\nTime to live (hops): " + wxString::Format("%d", packet.h_ip.ip4.ttl));
-        packetInfoText->WriteText("\nChecksum: 0x" + wxString::Format("%02x%02x", packet.h_ip.ip4.checksum[0], packet.h_ip.ip4.checksum[1]));
-        packetInfoText->WriteText("\nFlags: 0x" + wxString::Format("%02x%02x", packet.h_ip.ip4.flags[0], packet.h_ip.ip4.flags[1]));
-        packetInfoText->WriteText("\nService Type: 0x" + wxString::Format("%02x", packet.h_ip.ip4.serviceType));
-    }
-    else if ( IsIPV6Packet(&packet) ) {
-        packetInfoText->WriteText("Source IPv6: " + std::string(( char* ) GetSourceIPAddress(&packet)));
-        packetInfoText->WriteText("\nDestination IPv6: " + std::string(( char* ) GetDestIPAddress(&packet)));
-        packetInfoText->WriteText("\nFlow label: 0x" + wxString::Format("%02x%02x%02x", packet.h_ip.ip6.flowLabel[0], packet.h_ip.ip6.flowLabel[1], packet.h_ip.ip6.flowLabel[2]));
-        packetInfoText->WriteText("\nNext header: " + wxString::Format("%d", packet.h_ip.ip6.nextHeader));
-        packetInfoText->WriteText("\nHop limit: " + wxString::Format("%d", packet.h_ip.ip6.hopLimit));
-    }
-
-    if ( GetPacketProtocol(&packet) == TCP ) {
-        // print tcp header
-        packetInfoText->WriteText("\n\nTransmission Control Protocol Header,");
-        packetInfoText->WriteText("\nSource Port: " + wxString::Format("%d", GetSourcePort(&packet)));
-        packetInfoText->WriteText("\nDestination Port: " + wxString::Format("%d", GetDestPort(&packet)));
-       
-        char* flags = GetStringTCPFlagsSet(&packet);
-        if ( flags != NULL ) {
-            packetInfoText->WriteText("\nFlags Set: " + wxString::Format("%s", flags));
-            free(flags);
-        }
-        
-        packetInfoText->WriteText("\nSequence Number: 0x" + 
-            wxString::Format("%02x%02x%02x%02x", 
-                packet.h_proto.tcp.sequenceNum[0], packet.h_proto.tcp.sequenceNum[1], 
-                packet.h_proto.tcp.sequenceNum[2], packet.h_proto.tcp.sequenceNum[3])
-        );
-        
-        packetInfoText->WriteText("\nAcknowledgement Number: 0x" +
-            wxString::Format("%02x%02x%02x%02x", 
-                packet.h_proto.tcp.ackNum[0], packet.h_proto.tcp.ackNum[1], 
-                packet.h_proto.tcp.ackNum[2], packet.h_proto.tcp.ackNum[3])
-        );
-
-        packetInfoText->WriteText("\nHeader length: " + wxString::Format("%d", packet.h_proto.tcp.len));
-        packetInfoText->WriteText("\nCongestion Window Reduced: " + wxString::Format("%d", packet.h_proto.tcp.congWinFlag));
-        packetInfoText->WriteText("\nWindow: " + wxString::Format("%d", HexPortToInt(packet.h_proto.tcp.window)));
-        packetInfoText->WriteText("\nChecksum: 0x" + wxString::Format("%02x%02x", packet.h_proto.tcp.checksum[0], packet.h_proto.tcp.checksum[1]));
-        packetInfoText->WriteText("\nUrgent Pointer: " + wxString::Format("%d", (packet.h_proto.tcp.urgentPtr[0] << 8) | packet.h_proto.tcp.urgentPtr[1]));
-    }
+    // Printing protocol headers
+    if ( GetPacketProtocol(&packet) == TCP ) WriteTCPHeader(packetInfoText, packet);
+    else if ( GetPacketProtocol(&packet) == ICMP || GetPacketProtocol(&packet) == ICMP6 ) WriteICMPHeader(packetInfoText, packet);
+    else if ( GetPacketProtocol(&packet) == UDP ) WriteUDPHeader(packetInfoText, packet);
 
     if ( packet.tls.usesTLS ) {
         packetInfoText->WriteText("\n\nTransport Layer Security Details,");
         packetInfoText->WriteText("\nPayload is encrypted using TLS.");
-        packetInfoText->WriteText("\nTLS Content Type: " + wxString::Format("%d", packet.tls.contentType));
-        packetInfoText->WriteText("\nTLS Version: " + std::string(GetStringTLSVersion(packet.tls.tlsVersionID)));
+        packetInfoText->WriteText("\nTLS Content Type: " + wxString::Format("%d (%s)", packet.tls.contentType, GetEnumName<TLSContentType>(TLSContentTypeNames, (TLSContentType)packet.tls.contentType)));
+        packetInfoText->WriteText("\nTLS Version: " + std::string(GetEnumName<TLSVersions>(TLSVersionNames, packet.tls.tlsVersionID)));
         packetInfoText->WriteText("\nTLS Encrypted Payload Length: " + wxString::Format("%d", ( packet.tls.encryptedPayloadLen[0] << 8 ) | packet.tls.encryptedPayloadLen[1]));
     }
 
     if ( packet.likelyHTTP ) {
         packetInfoText->WriteText("\n\nHypertext Transfer Protocol,");
-        packetInfoText->WriteText("\nHTTP Version: " + wxString::Format("%s", GetStringHTTPVersion(packet.httpVer)));
+        packetInfoText->WriteText("\nHTTP Version: " + wxString::Format("%s", HTTPVersionNames.at(packet.httpVer)));
         packetInfoText->WriteText("\nCheck Hex Dump For More");
     }
 
-    // simple. print at bottom
-    if ( IsIPV4Packet(&packet) ) {
-        packetInfoText->WriteText("\n\nIPV4 ");
-        packetInfoText->WriteText(MakeReadableIPV4Address(packet.h_ip.ip4.sourceIP));
-        packetInfoText->WriteText(" > ");
-        packetInfoText->WriteText(MakeReadableIPV4Address(packet.h_ip.ip4.destIP));
-    }
-    else if ( IsIPV6Packet(&packet) ) {
-        packetInfoText->WriteText("\n\nIPV6 ");
-        packetInfoText->WriteText(GetSourceIPAddress(&packet));
-        packetInfoText->WriteText(" > ");
-        packetInfoText->WriteText(GetDestIPAddress(&packet));
-    }
-
-    if ( GetPacketProtocol(&packet) == TCP )
-        packetInfoText->WriteText("\nTransmission Control Protocol (TCP)");
-    else if ( GetPacketProtocol(&packet) == UDP )
-        packetInfoText->WriteText("\nUser Datagram Protocol (UDP)");
-
-    if ( packet.tls.usesTLS )
-        packetInfoText->WriteText("\nTransport Layer Security (TLS) Encrypted Payload");
+    WritePacketInfoFooter(packetInfoText, packet);
 
     std::string ascii = "";  
     std::string hex = "";    
@@ -342,6 +400,7 @@ void MainFrame::InsertPacket(
     wxColour colour = GetColorFromProtocol(protocol);
     if ( protocol.Contains("TLS") ) // tls takes priority with colour
         colour = wxColour(193, 234, 245);
+
     else if ( protocol.Contains("ARP") )
         colour = wxColour(255, 177, 61);
 
@@ -406,6 +465,33 @@ void MainFrame::DeleteAllPackets(wxCommandEvent& event) {
 
     this->ClearPackets(event);
     this->packets.clear();
+}
+
+void MainFrame::CopyRawHex(wxCommandEvent& event)
+{
+    Packet packet = GetSelectedPacketInfo();
+    if ( wxTheClipboard->Open() ) {        
+        wxString hex = "";
+        for ( int i = 0; i < packet.packetSize; i++ )
+            hex += wxString::Format("%02X ", packet.rawData[i]);
+
+        wxTheClipboard->SetData(new wxTextDataObject(hex));
+        wxTheClipboard->Close();
+    }
+}
+
+Packet MainFrame::GetSelectedPacketInfo() {
+    wxListView* packetListView = ( wxListView* ) FindWindow(kPacketListPanel);
+    wxString index = packetListView->GetItemText(this->shownPacketIndex, 0); // get packet no
+    long lIndex = std::stol(index.c_str().AsChar());
+    if ( !this->packets.contains(lIndex) ) {
+        wxLogMessage("Packet not found in saved packets");
+        return {};
+    }
+
+    Packet packet = this->packets.at(lIndex);
+
+    return packet;
 }
 
 #endif
