@@ -99,7 +99,8 @@ struct Packet
     int payloadSize; // h_udp.len - 8 bytes
     u_char* payload; // malloc packet len - size of all headers
     uint32_t packetSize; // full packet size including all headers and payload
-    time_t timestamp; // time the packet was received at
+    uint32_t capLen; // length of portion
+    struct timeval timestamp;
     u_char* rawData;
     uint32_t packetNumber;
 

@@ -402,8 +402,7 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
     packet.payloadSize  = 0;
     packet.payload      = ( u_char* ) malloc(packetSize);
     packet.rawData      = rawData;
-    packet.packetNumber = packetCount;
-    packet.timestamp    = time(NULL);
+    packet.packetNumber = g_cPacketCount;
 
     uint32_t protoHeaderOffset = 0;
 
@@ -463,10 +462,12 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
 }
 
 static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, const u_char* data) {
-    if ( capturePackets == FALSE )
+    if ( g_cCapturePackets == FALSE )
         return;
 
     struct Packet packet = ParseRawPacket(data, pacInfo->len);
+    packet.timestamp = pacInfo->ts;
+    packet.capLen = pacInfo->caplen;
 
     if ( !FilterPacket(&packet) ) {
         free(packet.payload);
@@ -477,24 +478,20 @@ static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, c
     PacketHexDump(&packet);
 
     OnPacketCapture(&packet);
-    packetCount++;
+    g_cPacketCount++;
     printf("\n\n");
 }
 
-void CapturePackets(int interfaceIndex) {
-    if ( interfaceIndex > GetNumberOfNetworkInterfaces() ) {
-        MessageBoxA(NULL, "Failed to capture packets using selected network interface.", "Error", MB_OK | MB_ICONERROR);
-        return;
-    }
+pcap_if_t* GetNICFromIndex(int interfaceIndex) {
+    if ( interfaceIndex > GetNumberOfNetworkInterfaces() )
+        return NULL;
 
-    /* pcap error buffers */
     char devErrBuff[PCAP_ERRBUF_SIZE];
-    char openLiveErrBuff[PCAP_ERRBUF_SIZE];
 
     pcap_if_t* devList;
     if ( pcap_findalldevs(&devList, &devErrBuff) != 0 ) {
         MessageBoxA(NULL, "Failed to find network devices.", "Error", MB_OK | MB_ICONERROR);
-        return;
+        return NULL;
     }
 
     pcap_if_t* device = devList;
@@ -508,13 +505,36 @@ void CapturePackets(int interfaceIndex) {
         device = device->next;
     }
 
+    return device;
+}
+
+void CapturePackets(int interfaceIndex) {
+    if ( interfaceIndex > GetNumberOfNetworkInterfaces() ) {
+        MessageBoxA(NULL, "Failed to capture packets using selected network interface.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    char openLiveErrBuff[PCAP_ERRBUF_SIZE];
+
+    pcap_if_t* device = GetNICFromIndex(interfaceIndex);
+    if ( device == NULL )
+        return;
+
     pcap_t* handle = pcap_open_live(device->name, 262144, TRUE, 0, &openLiveErrBuff);
     if ( !handle ) {
         MessageBoxA(NULL, "Failed to open selected network interface.", "Error", MB_OK | MB_ICONERROR);
         return;
     }
 
-    capturePackets = TRUE;
+    // malloc
+    if ( g_cNumOpenNICHandles == 0 )
+        g_cOpenNICHandles = ( pcap_t** ) malloc(1024);            
+
+    // add handle to open NIC handles
+    if ( g_cOpenNICHandles != NULL )
+        g_cOpenNICHandles[g_cNumOpenNICHandles++] = handle;
+
+    g_cCapturePackets = TRUE;
     pcap_loop(handle, 0, HandlePacket, NULL);
 }
 
@@ -567,14 +587,61 @@ char** GetNetworkInterfaceNames()
 }
 
 void PausePacketCapture() {
-    capturePackets = FALSE;
+    g_cCapturePackets = FALSE;
 }
 
 void ResumePacketCapture() {
-    capturePackets = TRUE;
+    g_cCapturePackets = TRUE;
 }
 
-void ResetPacketCount()
-{
-    packetCount = 1;
+void ResetPacketCount() {
+    g_cPacketCount = 1;
+}
+
+BOOL ApplyFilter(int interfaceIndex, const char* filter) {
+    if ( g_cOpenNICHandles[g_cNumOpenNICHandles - 1] == NULL )
+        return FALSE;
+
+    pcap_t* handle = g_cOpenNICHandles[g_cNumOpenNICHandles - 1];
+    struct bpf_program fp;
+
+    if ( pcap_compile(handle, &fp, filter, 0, PCAP_NETMASK_UNKNOWN) != 0 )
+        return FALSE;
+
+    if ( pcap_setfilter(handle, &fp) != 0 )
+        return FALSE;
+
+    return TRUE;
+}
+
+BOOL DumpPacketsToFile(struct Packet** packetArray, int numberOfPackets, const char* filePath) {
+    if ( numberOfPackets < 0 || packetArray[numberOfPackets] == NULL )
+        return FALSE;
+
+    pcap_t* handle = pcap_open_dead(DLT_EN10MB, 65535);
+    if ( handle == NULL )
+        return FALSE;
+
+    pcap_dumper_t* dump = pcap_dump_open(handle, filePath);
+    if ( dump == NULL )
+        return FALSE;
+
+    for ( int i = 0; i < numberOfPackets; i++ ) {
+        if ( packetArray[i] == NULL )
+            continue;
+
+        struct Packet* packet = packetArray[i];
+
+        struct pcap_pkthdr info;
+        info.caplen = packet->capLen;
+        info.len = packet->packetSize;
+        info.ts = packet->timestamp;
+
+        pcap_dump((u_char*)dump, &info, packet->rawData);
+    }
+
+    pcap_dump_close(dump);
+    pcap_close(handle);
+
+    return TRUE;
 }

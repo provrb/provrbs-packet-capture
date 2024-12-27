@@ -13,7 +13,7 @@ char* GetTimeAsString() {
 }
 
 void PrintPacketInfo(struct Packet* packet) {
-    printf("Packet %d captured @ %s : %d bytes\n", packetCount, GetTimeAsString(), packet->packetSize);
+    printf("Packet %d captured @ %s : %d bytes\n", g_cPacketCount, GetTimeAsString(), packet->packetSize);
     printf("Packet Details\n");
     if ( IsIPV4Packet(packet) ) {
         printf("Source IP        : %d.%d.%d.%d\n", packet->h_ip.ip4.sourceIP[0], packet->h_ip.ip4.sourceIP[1], packet->h_ip.ip4.sourceIP[2], packet->h_ip.ip4.sourceIP[3]);

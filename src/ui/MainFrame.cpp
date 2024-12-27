@@ -8,7 +8,7 @@ extern "C" {
 }
 
 MainFrame::MainFrame(const wxString& title)
-    : wxFrame(nullptr, wxID_ANY, title), sortAscending(true)
+    : wxFrame(nullptr, wxID_ANY, title), sortAscending(true), shownPacketIndex(-1), capturingPackets(false), endedPacketCapture(false), displayedPacketCount(0), autoScroll(false)
 {
     CreateStatusBar();
 
@@ -20,12 +20,23 @@ MainFrame::MainFrame(const wxString& title)
     menuFile->Append(wxID_CLOSE);
     menuFile->AppendSeparator();
 
+    wxMenu* menuView = new wxMenu;
+    wxMenuItem* autoScrollCheckItem = new wxMenuItem(menuView, MENU_AUTO_SCROLL, "Packet List Auto Scroll", "", wxITEM_CHECK);
+
+    Bind(wxEVT_MENU, [this, autoScrollCheckItem](wxCommandEvent& _)
+        {
+            this->autoScroll = !this->autoScroll;
+            autoScrollCheckItem->Check(this->autoScroll);
+        },
+        MENU_AUTO_SCROLL
+    );
+
+    menuView->Append(autoScrollCheckItem);
+
     wxMenuItem* clearItem = new wxMenuItem(NULL, wxID_CLEAR, "Clear All Packets");
     menuFile->Append(clearItem);
-        
     menuFile->Append(wxID_SAVE);
     menuFile->Append(wxID_SAVEAS);
-
     menuFile->AppendSeparator();
     menuFile->Append(wxID_EXIT);
 
@@ -33,10 +44,8 @@ MainFrame::MainFrame(const wxString& title)
     menuHelp->Append(wxID_ABOUT);
 
     wxMenu* menuCapture = new wxMenu;
-
     wxMenu* selectNic = new wxMenu;
     menuCapture->AppendSubMenu(selectNic, "&Select Network Interfaces");
-
     menuCapture->AppendSeparator();
     char** networkInterfaceNames = GetNetworkInterfaceNames();
 
@@ -89,7 +98,7 @@ MainFrame::MainFrame(const wxString& title)
         );
     }
 
-    /* 
+    /*
     * Start capturing packets button was clicked.
     */
     Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption, pausePacketCapture, resumePacketCapture](wxCommandEvent& event)
@@ -127,7 +136,7 @@ MainFrame::MainFrame(const wxString& title)
 
             SetStatusText(wxString::Format("Ended packet capture. Captured %d packets.", packets.size()));
             PausePacketCapture();
-            
+
             capturingPackets = false;
             endedPacketCapture = true;
             this->packets.clear();
@@ -184,9 +193,10 @@ MainFrame::MainFrame(const wxString& title)
 
     wxMenuBar* menuBar = new wxMenuBar;
     menuBar->Append(menuFile, "&File");
+    menuBar->Append(menuView, "&View");
     menuBar->Append(menuCapture, "&Capture");
     menuBar->Append(menuHelp, "&Help");
-    
+
 
     SetMenuBar(menuBar);
 
@@ -195,6 +205,43 @@ MainFrame::MainFrame(const wxString& title)
 
     // packet list panel
     wxPanel* packetListPanel = new wxPanel(panel, wxID_ANY, wxDefaultPosition);
+
+    wxTextCtrl* filterBox = new wxTextCtrl(panel, kFilterTextBox, "", wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
+    filterBox->SetHint("Apply Filters");
+    Bind(wxEVT_TEXT_ENTER, [this, filterBox](wxCommandEvent& _) 
+        {
+            BOOL success = FALSE;
+            for ( int i : selectedNicIndexes ) {
+                success = ApplyFilter(i, filterBox->GetValue().c_str());
+                if ( success == FALSE ) // red bg
+                {
+                    filterBox->SetBackgroundColour(wxColour(250, 147, 147));
+                    filterBox->Refresh();
+                    filterBox->Update();
+                    break;
+                } else {
+                    filterBox->SetBackgroundColour(wxColour(120, 255, 124));
+                    filterBox->Refresh();
+                    filterBox->Update();
+                }
+            }
+        },
+        kFilterTextBox
+    );
+
+    Bind(wxEVT_TEXT, [this, filterBox](wxCommandEvent& _) 
+        {
+            filterBox->SetBackgroundColour(*wxWHITE);
+            filterBox->Refresh();
+            filterBox->Update();
+                
+            if ( filterBox->GetValue().IsEmpty() )
+                // remove applied filters if empty
+                for ( int i : selectedNicIndexes )
+                    ApplyFilter(i, "");
+        }, 
+        kFilterTextBox
+    );
 
     wxListView* packetListView = new wxListView(packetListPanel, kPacketListPanel, wxDefaultPosition, wxDefaultSize, wxLC_REPORT);
     packetListView->AppendColumn("No.", wxLIST_FORMAT_LEFT, 50);
@@ -235,6 +282,7 @@ MainFrame::MainFrame(const wxString& title)
     wxBoxSizer* rightSizer = new wxBoxSizer(wxVERTICAL);
     wxBoxSizer* packetInfoSizer = new wxBoxSizer(wxVERTICAL);
 
+    leftSizer->Add(filterBox, 0, wxEXPAND | wxALL, 5); // Add search box above packetListPanel
     leftSizer->Add(packetListPanel, 1, wxEXPAND | wxALL, 5);
 
     packetInfoSizer->Add(new wxStaticText(packetInfoPanel, wxID_ANY, "Packet Info"), 0, wxEXPAND | wxALL, 5); // Add label
@@ -569,6 +617,9 @@ void MainFrame::InsertPacket(
     packetListView->Bind(wxEVT_LIST_ITEM_SELECTED, &MainFrame::ShowPacketInformation, this);
 
     this->displayedPacketCount++;
+
+    if ( autoScroll )
+        packetListView->EnsureVisible(item.GetId());
 }
 
 wxString MainFrame::MakeReadableIPV4Address(u_char* ipv4Addr)

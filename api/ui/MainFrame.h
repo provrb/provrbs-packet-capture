@@ -9,10 +9,14 @@
 #include <wx/clipbrd.h>
 #include <enumnames.h>
 
+// menu wx ids
+#define MENU_AUTO_SCROLL 5821
+
 enum Windows {
     kPacketListPanel = 0x832,
     kPacketInfoPanel = 0x30,
     kHexDumpTextPane = 0x92,
+    kFilterTextBox = 0x39,
 };
 
 enum Menus {
@@ -103,6 +107,7 @@ public:
     std::vector<int> selectedNicIndexes = {};
     bool capturingPackets = false;
     bool endedPacketCapture = false;
+    bool autoScroll = false;
     uint32_t displayedPacketCount = 0;
 };
 
