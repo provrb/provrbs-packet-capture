@@ -463,10 +463,8 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
 }
 
 static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, const u_char* data) {
-    if ( capturePackets == FALSE ) {
-        ResetPacketCount();
+    if ( capturePackets == FALSE )
         return;
-    }
 
     struct Packet packet = ParseRawPacket(data, pacInfo->len);
 
@@ -568,9 +566,12 @@ char** GetNetworkInterfaceNames()
     return networkInterfaces;
 }
 
-void StopPacketCapture()
-{
+void PausePacketCapture() {
     capturePackets = FALSE;
+}
+
+void ResumePacketCapture() {
+    capturePackets = TRUE;
 }
 
 void ResetPacketCount()

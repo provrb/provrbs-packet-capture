@@ -21,6 +21,8 @@ enum Menus {
     kSelectNetworkInterface = 6,
     kStartCapturingPackets = 8,
     KStopPacketCapture = 10,
+    kPausePacketCapture = 492,
+    kResumePacketCapture = 921,
 };
 
 enum SortOrder {

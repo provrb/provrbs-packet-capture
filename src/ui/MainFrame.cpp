@@ -42,9 +42,13 @@ MainFrame::MainFrame(const wxString& title)
 
     wxMenuItem* startCapturePacketsOption = new wxMenuItem(NULL, kStartCapturingPackets, "Start Capturing Packets");
     wxMenuItem* stopCapturePacketsOption = new wxMenuItem(NULL, KStopPacketCapture, "End Packet Capture");
+    wxMenuItem* pausePacketCapture = new wxMenuItem(NULL, kPausePacketCapture, "Pause Packet Capture");
+    wxMenuItem* resumePacketCapture = new wxMenuItem(NULL, kResumePacketCapture, "Resume Packet Capture");
 
     stopCapturePacketsOption->Enable(false);
     startCapturePacketsOption->Enable(false);
+    pausePacketCapture->Enable(false);
+    resumePacketCapture->Enable(false);
 
     // append network interfaces
     for ( int i = 0; i < GetNumberOfNetworkInterfaces(); i++ ) {
@@ -88,7 +92,7 @@ MainFrame::MainFrame(const wxString& title)
     /* 
     * Start capturing packets button was clicked.
     */
-    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption](wxCommandEvent& event)
+    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption, pausePacketCapture, resumePacketCapture](wxCommandEvent& event)
         {
             if ( capturingPackets ) {
                 MessageBoxA(NULL, "Cannot capture packets. Already capturing packets.", "Information", MB_OK | MB_ICONINFORMATION);
@@ -103,11 +107,14 @@ MainFrame::MainFrame(const wxString& title)
             capturingPackets = true;
             startCapturePacketsOption->Enable(false);
             stopCapturePacketsOption->Enable(true);
+            // enable pause
+            pausePacketCapture->Enable(true);
+            resumePacketCapture->Enable(false);
         },
         kStartCapturingPackets
     );
 
-    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption](wxCommandEvent& event)
+    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption, pausePacketCapture, resumePacketCapture](wxCommandEvent& event)
         {
             if ( !capturingPackets ) {
                 MessageBoxA(NULL, "Not currently capturing packets. Cannot stop.", "Information", MB_OK | MB_ICONINFORMATION);
@@ -119,7 +126,7 @@ MainFrame::MainFrame(const wxString& title)
                 return;
 
             SetStatusText(wxString::Format("Ended packet capture. Captured %d packets.", packets.size()));
-            StopPacketCapture();
+            PausePacketCapture();
             
             capturingPackets = false;
             endedPacketCapture = true;
@@ -130,12 +137,50 @@ MainFrame::MainFrame(const wxString& title)
 
             startCapturePacketsOption->Enable(false);
             stopCapturePacketsOption->Enable(false);
+
+            // remove pause and resume
+            pausePacketCapture->Enable(false);
+            resumePacketCapture->Enable(false);
         },
         KStopPacketCapture
     );
 
+    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption, pausePacketCapture, resumePacketCapture](wxCommandEvent& event)
+        {
+            SetStatusText(wxString::Format("Paused packet capture"));
+            pausePacketCapture->Enable(false);
+            resumePacketCapture->Enable(true);
+
+            // pause packet
+            PausePacketCapture();
+
+            startCapturePacketsOption->Enable(false);
+            stopCapturePacketsOption->Enable(false);
+        },
+        kPausePacketCapture
+    );
+
+    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption, pausePacketCapture, resumePacketCapture](wxCommandEvent& event)
+        {
+            SetStatusText(wxString::Format("Resumed packet capture"));
+
+            pausePacketCapture->Enable(true);
+            resumePacketCapture->Enable(false);
+
+            // resume packet
+            ResumePacketCapture();
+
+            startCapturePacketsOption->Enable(false);
+            stopCapturePacketsOption->Enable(true);
+        },
+        kResumePacketCapture
+    );
+
     menuCapture->Append(startCapturePacketsOption);
     menuCapture->Append(stopCapturePacketsOption);
+    menuCapture->AppendSeparator();
+    menuCapture->Append(pausePacketCapture);
+    menuCapture->Append(resumePacketCapture);
 
     wxMenuBar* menuBar = new wxMenuBar;
     menuBar->Append(menuFile, "&File");

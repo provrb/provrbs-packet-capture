@@ -35,7 +35,8 @@ static pcap_handler   HandlePacket(u_char* byteStrHandle, const struct pcap_pkth
 void                  CapturePackets(int interfaceIndex);
 int                   GetNumberOfNetworkInterfaces();
 char**                GetNetworkInterfaceNames();
-void                  StopPacketCapture();
+void                  PausePacketCapture();
+void                  ResumePacketCapture();
 void                  ResetPacketCount();
 
 #ifdef __cplusplus
