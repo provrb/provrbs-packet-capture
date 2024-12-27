@@ -30,6 +30,7 @@ ENUM_NAMES_FOR(InternetProtocol) InternetProtocolNames
     {IGMP, "IGMP"},
     {TCP, "TCP"},
     {UDP, "UDP"},
+    {ICMP4, "ICMP"}, // 1 is icmp in protoocl for ipv4 headers
     {ICMP, "ICMP"},
     {ICMP6, "ICMPv6"},
     {ARP, "ARP"},

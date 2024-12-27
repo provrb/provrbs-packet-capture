@@ -3,7 +3,7 @@
 #include <Packets.h>
 
 int main(int argc, char* argv[]) {
-    CapturePackets();
+    CapturePackets(3);
 
     return 0;
 }

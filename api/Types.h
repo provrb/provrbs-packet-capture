@@ -10,14 +10,14 @@
 #define ICMP_HEADER_SIZE 8
 #define ARP_HEADER_SIZE 27
 #define ICMP6_HEADER_SIZE 31
-
 #define DNS_QUERY_PORT 53
+
+#define APP_NAME "ProCapture"
 
 #include <ctype.h>
 #include <npcap/pcap.h>
 
-enum IPVersion 
-{
+enum IPVersion {
     UnknownIPV = -1,
     kIPV4 = 1,
     kIPV6,
@@ -75,11 +75,12 @@ enum ICMP6Type2 {
 enum InternetProtocol {
     ICMPHEADER2 = 0,
     UNKNOWN = -1,
+    ICMP4 = 1, // icmp is 1 in ipv4 headers 'protocol'
+    ICMP6 = 49,
+    ICMP = 58, // icmp is 58 in ipv6 headers 'next header'
     IGMP = 2,
     TCP = 6,
     UDP = 17,
-    ICMP = 58,
-    ICMP6 = 49,
     ARP = 99,
     HTTP
 };

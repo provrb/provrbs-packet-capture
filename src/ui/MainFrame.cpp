@@ -7,13 +7,11 @@ extern "C" {
 #include <packets.h>
 }
 
-wxBEGIN_EVENT_TABLE(MainFrame, wxFrame)
-    EVT_MENU(kClearAllPackets, MainFrame::ClearPackets)
-wxEND_EVENT_TABLE()
-
 MainFrame::MainFrame(const wxString& title)
     : wxFrame(nullptr, wxID_ANY, title), sortAscending(true)
 {
+    CreateStatusBar();
+
     wxMenu* menuFile = new wxMenu;
     menuFile->Append(wxID_NEW);
     menuFile->AppendSubMenu(new wxMenu, "&Open Recent");
@@ -22,9 +20,9 @@ MainFrame::MainFrame(const wxString& title)
     menuFile->Append(wxID_CLOSE);
     menuFile->AppendSeparator();
 
-    wxMenuItem* clearItem = new wxMenuItem(NULL, kClearAllPackets, "Clear All Packets");
+    wxMenuItem* clearItem = new wxMenuItem(NULL, wxID_CLEAR, "Clear All Packets");
     menuFile->Append(clearItem);
-
+        
     menuFile->Append(wxID_SAVE);
     menuFile->Append(wxID_SAVEAS);
 
@@ -34,14 +32,118 @@ MainFrame::MainFrame(const wxString& title)
     wxMenu* menuHelp = new wxMenu;
     menuHelp->Append(wxID_ABOUT);
 
+    wxMenu* menuCapture = new wxMenu;
+
+    wxMenu* selectNic = new wxMenu;
+    menuCapture->AppendSubMenu(selectNic, "&Select Network Interfaces");
+
+    menuCapture->AppendSeparator();
+    char** networkInterfaceNames = GetNetworkInterfaceNames();
+
+    wxMenuItem* startCapturePacketsOption = new wxMenuItem(NULL, kStartCapturingPackets, "Start Capturing Packets");
+    wxMenuItem* stopCapturePacketsOption = new wxMenuItem(NULL, KStopPacketCapture, "End Packet Capture");
+
+    stopCapturePacketsOption->Enable(false);
+    startCapturePacketsOption->Enable(false);
+
+    // append network interfaces
+    for ( int i = 0; i < GetNumberOfNetworkInterfaces(); i++ ) {
+
+        wxMenuItem* checkItem = new wxMenuItem(selectNic, i, networkInterfaceNames[i], "", wxITEM_CHECK);
+        selectNic->Append(checkItem);
+
+        Bind(wxEVT_MENU, [this, i, selectNic, checkItem, networkInterfaceNames, startCapturePacketsOption](wxCommandEvent& evemt)
+            {
+                if ( capturingPackets ) // cant select more network devices when already capturing
+                {
+                    MessageBoxA(NULL,
+                        "You cannot select another Network Interface while already capturing packets. Stop capturing packets first.",
+                        networkInterfaceNames[i],
+                        MB_OK | MB_ICONINFORMATION
+                    );
+
+                    return;
+                }
+
+
+                auto itemIndex = std::find(selectedNicIndexes.begin(), selectedNicIndexes.end(), i);
+                if ( itemIndex != selectedNicIndexes.end() ) {
+                    // i is already selected
+                    checkItem->Check(false);
+                    selectedNicIndexes.erase(itemIndex);
+                }
+                else {
+                    // i not selected
+                    checkItem->Check(true);
+                    selectedNicIndexes.push_back(i);
+                }
+
+                if ( !endedPacketCapture )
+                    startCapturePacketsOption->Enable(true);
+            },
+            i
+        );
+    }
+
+    /* 
+    * Start capturing packets button was clicked.
+    */
+    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption](wxCommandEvent& event)
+        {
+            if ( capturingPackets ) {
+                MessageBoxA(NULL, "Cannot capture packets. Already capturing packets.", "Information", MB_OK | MB_ICONINFORMATION);
+                return;
+            }
+
+            for ( int selectedNicIndex : selectedNicIndexes ) {
+                std::thread capture(CapturePackets, selectedNicIndex);
+                capture.detach();
+            }
+
+            capturingPackets = true;
+            startCapturePacketsOption->Enable(false);
+            stopCapturePacketsOption->Enable(true);
+        },
+        kStartCapturingPackets
+    );
+
+    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption](wxCommandEvent& event)
+        {
+            if ( !capturingPackets ) {
+                MessageBoxA(NULL, "Not currently capturing packets. Cannot stop.", "Information", MB_OK | MB_ICONINFORMATION);
+                return;
+            }
+
+            int userOpt = MessageBoxA(NULL, "End packet capturing? To resume, you must start a new " APP_NAME " session.", "Are you sure", MB_YESNOCANCEL | MB_ICONINFORMATION);
+            if ( userOpt != IDYES )
+                return;
+
+            SetStatusText(wxString::Format("Ended packet capture. Captured %d packets.", packets.size()));
+            StopPacketCapture();
+            
+            capturingPackets = false;
+            endedPacketCapture = true;
+            this->packets.clear();
+            this->displayedPacketCount = 0;
+
+            ResetPacketCount();
+
+            startCapturePacketsOption->Enable(false);
+            stopCapturePacketsOption->Enable(false);
+        },
+        KStopPacketCapture
+    );
+
+    menuCapture->Append(startCapturePacketsOption);
+    menuCapture->Append(stopCapturePacketsOption);
+
     wxMenuBar* menuBar = new wxMenuBar;
     menuBar->Append(menuFile, "&File");
+    menuBar->Append(menuCapture, "&Capture");
     menuBar->Append(menuHelp, "&Help");
+    
 
     SetMenuBar(menuBar);
-
-    CreateStatusBar();
-    SetStatusText("Not capturing packets");
 
     // panels
     wxPanel* panel = new wxPanel(this, wxID_ANY);
@@ -69,6 +171,7 @@ MainFrame::MainFrame(const wxString& title)
     wxTextCtrl* hexDumpText = new wxTextCtrl(hexDumpPanel, kHexDumpTextPane, "", wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY);
 
     hexDumpText->Bind(wxEVT_CONTEXT_MENU, &MainFrame::HexDumpRightClicked, this);
+    menuFile->Bind(wxEVT_MENU, &MainFrame::ClearPackets, this, wxID_CLEAR);
 
     wxFont font(12, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "Consolas");
     font.Scale(.9);
@@ -389,13 +492,10 @@ void MainFrame::InsertPacket(
 )
 {
     wxListView* packetListView = ( wxListView* ) FindWindow(kPacketListPanel);
-
-    long index = packetListView->InsertItem(packetListView->GetItemCount(), packetNo);
-
-    wxListItem item;
-    item.SetId(index);
-    item.SetColumn(0);
-    item.SetText(packetNo);
+    if ( packetListView == NULL ) {
+        wxLogMessage("Error getting packet list view?");
+        return;
+    }
 
     wxColour colour = GetColorFromProtocol(protocol);
     if ( protocol.Contains("TLS") ) // tls takes priority with colour
@@ -407,20 +507,23 @@ void MainFrame::InsertPacket(
     if ( description.Contains("HTTP") )
         colour = wxColour(76, 245, 169);
 
-
+    wxListItem item;
+    item.SetId(packetListView->GetItemCount());
     item.SetBackgroundColour(colour);
 
+    packetListView->InsertItem(item);
+    packetListView->SetItem(item.GetId(), 0, packetNo);
+    packetListView->SetItem(item.GetId(), 1, ipv);
+    packetListView->SetItem(item.GetId(), 2, srcAddr);
+    packetListView->SetItem(item.GetId(), 3, destAddr);
+    packetListView->SetItem(item.GetId(), 4, protocol);
+    packetListView->SetItem(item.GetId(), 5, srcPort);
+    packetListView->SetItem(item.GetId(), 6, destPort);
+    packetListView->SetItem(item.GetId(), 7, packetSize + " bytes");
+    packetListView->SetItem(item.GetId(), 8, description);
     packetListView->Bind(wxEVT_LIST_ITEM_SELECTED, &MainFrame::ShowPacketInformation, this);
 
-    packetListView->SetItem(item);
-    packetListView->SetItem(index, 1, ipv);
-    packetListView->SetItem(index, 2, srcAddr);
-    packetListView->SetItem(index, 3, destAddr);
-    packetListView->SetItem(index, 4, protocol);
-    packetListView->SetItem(index, 5, srcPort);
-    packetListView->SetItem(index, 6, destPort);
-    packetListView->SetItem(index, 7, packetSize + " bytes");
-    packetListView->SetItem(index, 8, description);
+    this->displayedPacketCount++;
 }
 
 wxString MainFrame::MakeReadableIPV4Address(u_char* ipv4Addr)
@@ -456,16 +559,9 @@ void MainFrame::ClearPackets(wxCommandEvent& event)
 {
     wxListView* packetListView = ( wxListView* ) FindWindow(kPacketListPanel);
     packetListView->DeleteAllItems();
+    shownPacketIndex = -1;
 }
 
-void MainFrame::DeleteAllPackets(wxCommandEvent& event) {
-    int confirmation = MessageBoxA(NULL, "Delete all logged packets?", "Confirmation", MB_ICONWARNING | MB_YESNOCANCEL);
-    if ( confirmation != IDYES )
-        return;
-
-    this->ClearPackets(event);
-    this->packets.clear();
-}
 
 void MainFrame::CopyRawHex(wxCommandEvent& event)
 {

@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 static uint32_t packetCount = 1;
+static BOOL capturePackets = TRUE;
 
 char*                 GetStringTCPFlagsSet(struct Packet* packet);
 BOOL                  IsSuspectedHTTPRequest(struct Packet* packet);
@@ -31,7 +32,11 @@ u_char*               GetSourceIPAddress(struct Packet* packet);
 u_char*               GetDestIPAddress(struct Packet* packet);
 struct Packet         ParseRawPacket(u_char* rawData, uint32_t packetSize);
 static pcap_handler   HandlePacket(u_char* byteStrHandle, const struct pcap_pkthdr* pacInfo, const u_char* data);
-void                  CapturePackets();
+void                  CapturePackets(int interfaceIndex);
+int                   GetNumberOfNetworkInterfaces();
+char**                GetNetworkInterfaceNames();
+void                  StopPacketCapture();
+void                  ResetPacketCount();
 
 #ifdef __cplusplus
 }

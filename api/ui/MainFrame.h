@@ -10,14 +10,17 @@
 #include <enumnames.h>
 
 enum Windows {
-    kPacketListPanel = 3,
+    kPacketListPanel = 0x832,
     kPacketInfoPanel = 0x30,
     kHexDumpTextPane = 0x92,
 };
 
 enum Menus {
-    kClearAllPackets = 3,
+    kClearAllPackets = 0x9128,
     kDeleteAllPackets = 5,
+    kSelectNetworkInterface = 6,
+    kStartCapturingPackets = 8,
+    KStopPacketCapture = 10,
 };
 
 enum SortOrder {
@@ -95,9 +98,10 @@ public:
     std::unordered_map<long, Packet> packets;
     bool sortAscending = false;
     long shownPacketIndex = -1; // the packet index that is being display in packet info panel
-    bool capturePackets = false;
-
-    wxDECLARE_EVENT_TABLE();
+    std::vector<int> selectedNicIndexes = {};
+    bool capturingPackets = false;
+    bool endedPacketCapture = false;
+    uint32_t displayedPacketCount = 0;
 };
 
 #endif

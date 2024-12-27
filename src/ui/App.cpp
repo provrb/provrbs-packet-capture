@@ -16,6 +16,9 @@ Packet MakePacketDeepCopy(struct Packet* original) {
     copied.rawData  = new u_char[original->packetSize];
     memcpy(copied.rawData, original->rawData, original->packetSize);
 
+    copied.payload = new u_char[original->payloadSize];
+    memcpy(copied.payload, original->payload, original->payloadSize);
+
     copied.httpVer = original->httpVer;
     copied.h_ethernet = original->h_ethernet;
     copied.h_ip = original->h_ip;
@@ -24,7 +27,6 @@ Packet MakePacketDeepCopy(struct Packet* original) {
     copied.likelyHTTP = original->likelyHTTP;
     copied.packetNumber = original->packetNumber;
     copied.packetSize = original->packetSize;
-    copied.payload = original->payload;
     copied.payloadSize = original->payloadSize;
     copied.protocol = original->protocol;
     copied.timestamp = original->timestamp;
@@ -39,6 +41,9 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
         MessageBoxA(NULL, "Error", "Error getting main frame", MB_OK);
         return;
     }
+
+    if ( !mainFrame->capturingPackets )
+        return;
 
     wxString srcAddr = "";
     wxString destAddr = "";
@@ -71,35 +76,38 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
         info += "Keep-Alive Packet ";
     else if ( IsDNSQuery(packet) )
         info += "DNS Standard Query";
-    else if ( GetPacketProtocol(packet) == ICMP6 || GetPacketProtocol(packet) == ICMP )
+    else if ( GetPacketProtocol(packet) == ICMP6 || GetPacketProtocol(packet) == ICMP || GetPacketProtocol(packet) == ICMP4 )
         info += GetEnumName<ICMPTypes>(ICMPTypeNames, (ICMPTypes)packet->h_proto.icmp.type);
 
     if ( IsARPPacket(packet) )
         info = "Who has " + mainFrame->MakeReadableIPV4Address(packet->h_proto.arp.senderIP) + "? Tell " + mainFrame->MakeReadableIPV4Address(packet->h_proto.arp.targetIP);
 
-    packet->rawData = packetData;
+
     Packet copied = MakePacketDeepCopy(packet);
 
-    mainFrame->packets.insert({copied.packetNumber, copied});
+    mainFrame->packets.insert({ packet->packetNumber, copied });
 
     mainFrame->InsertPacket(
-        std::to_string(copied.packetNumber),
-        GetEnumName<IPVersion>(IPVersionNames, copied.ipVer),
+        std::to_string(packet->packetNumber),
+        GetEnumName<IPVersion>(IPVersionNames, packet->ipVer),
         srcAddr,
         destAddr,
         protocol,
-        std::to_string(GetSourcePort(&copied)),
-        std::to_string(GetDestPort(&copied)),
-        std::to_string(copied.packetSize),
+        std::to_string(GetSourcePort(packet)),
+        std::to_string(GetDestPort(packet)),
+        std::to_string(packet->packetSize),
         info
     );
+
+    mainFrame->SetStatusText(wxString::Format("Capturing packets. (%d total captured)", mainFrame->packets.size()));
 }
 
 bool App::OnInit()
 {
     frontendCapturePacket = &FrontendReceivePacket;
-    MainFrame* mainFrame = new MainFrame("Provrbs Packet Capture");
+    MainFrame* mainFrame = new MainFrame(APP_NAME);
     mainFrame->Show(true);
+    mainFrame->SetIcon(wxICON(IDI_ICON1));
 
     wxDisplay display(wxDisplay::GetFromWindow(mainFrame));
     wxRect dimensions = display.GetClientArea();
@@ -107,9 +115,6 @@ bool App::OnInit()
     mainFrame->Maximize();
     mainFrame->SetClientSize(dimensions.GetWidth(), dimensions.GetHeight());
     mainFrame->SetMinClientSize(wxSize(800, 600));
-
-    std::thread capturer(CapturePackets);
-    capturer.detach();
 
     return true;
 }

@@ -9,12 +9,8 @@ void RegisterFrontendCapture(void ( *callback )( struct Packet* packet )) {
 
 void OnPacketCapture(struct Packet* packet) {
 #ifndef _CLI_
-
     // notify frontend
     if ( frontendCapturePacket )
         frontendCapturePacket(packet, packet->rawData);
-    else {
-        MessageBoxA(NULL, "No front end callback set.", "Status", MB_OK | MB_ICONERROR);
-    }
 #endif
 }

@@ -3,7 +3,7 @@
 #include <ui/UIEvents.h>
 
 enum IPVersion GetIPVersion(struct Packet* packet) {
-    if ( packet->h_ethernet.type[0] == 134 && packet->h_ethernet.type[1] == 221 )
+    if ( packet->h_ethernet.type[0] == 0x86 && packet->h_ethernet.type[1] == 0xDD )
         return kIPV6;
 
     else if ( packet->h_ethernet.type[0] == 8 && packet->h_ethernet.type[1] == 0 )
@@ -463,6 +463,11 @@ struct Packet ParseRawPacket(u_char* rawData, uint32_t packetSize) {
 }
 
 static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, const u_char* data) {
+    if ( capturePackets == FALSE ) {
+        ResetPacketCount();
+        return;
+    }
+
     struct Packet packet = ParseRawPacket(data, pacInfo->len);
 
     if ( !FilterPacket(&packet) ) {
@@ -478,29 +483,97 @@ static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, c
     printf("\n\n");
 }
 
-void CapturePackets() {
-    // error buffers
-    char devErrBuff[PCAP_ERRBUF_SIZE];
-    char openLiveErrBuff[PCAP_ERRBUF_SIZE];
-
-    BOOL captureAllTraffic = FALSE;
-    pcap_if_t* dev;
-
-    if ( pcap_findalldevs(&dev, &devErrBuff) != 0 ) {
-        printf("There was an error finding all devices.\n");
+void CapturePackets(int interfaceIndex) {
+    if ( interfaceIndex > GetNumberOfNetworkInterfaces() ) {
+        MessageBoxA(NULL, "Failed to capture packets using selected network interface.", "Error", MB_OK | MB_ICONERROR);
         return;
     }
 
-    pcap_if_t* tmp = dev->next;
+    /* pcap error buffers */
+    char devErrBuff[PCAP_ERRBUF_SIZE];
+    char openLiveErrBuff[PCAP_ERRBUF_SIZE];
 
-    while ( tmp->next != NULL )
-    {
-        pcap_t* handle = pcap_open_live(tmp->name, 262144, captureAllTraffic, 0, &openLiveErrBuff);
-        if ( handle ) {
-            printf("Opened %s for packet capture.\n", tmp->description);
-            if ( strstr(tmp->description, "Realtek") != 0 )
-                pcap_loop(handle, 0, HandlePacket, NULL);
-        }
-        tmp = tmp->next;
+    pcap_if_t* devList;
+    if ( pcap_findalldevs(&devList, &devErrBuff) != 0 ) {
+        MessageBoxA(NULL, "Failed to find network devices.", "Error", MB_OK | MB_ICONERROR);
+        return;
     }
+
+    pcap_if_t* device = devList;
+    int numInterface = 0;
+
+    while ( device->next != NULL ) {
+        if ( numInterface == interfaceIndex )
+            break;
+
+        numInterface++;
+        device = device->next;
+    }
+
+    pcap_t* handle = pcap_open_live(device->name, 262144, TRUE, 0, &openLiveErrBuff);
+    if ( !handle ) {
+        MessageBoxA(NULL, "Failed to open selected network interface.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    capturePackets = TRUE;
+    pcap_loop(handle, 0, HandlePacket, NULL);
+}
+
+int GetNumberOfNetworkInterfaces() {
+    pcap_if_t* devList;
+    int numberOfNetworkInterfaces = 0;
+
+    char devErrBuff[PCAP_ERRBUF_SIZE];
+    if ( pcap_findalldevs(&devList, &devErrBuff) != 0 ) {
+        return 0;
+    }
+
+    pcap_if_t* device = devList;
+
+    while ( device->next != NULL ) {
+        numberOfNetworkInterfaces++;
+        device = device->next;
+    }
+
+    return numberOfNetworkInterfaces;
+}
+
+char** GetNetworkInterfaceNames()
+{
+    int networkInterfacesNum = 0;
+    char** networkInterfaces = ( char* ) malloc(1024);
+    if ( networkInterfaces == NULL )
+        return NULL;
+
+    pcap_if_t* devList;
+    char devErrBuff[PCAP_ERRBUF_SIZE];
+
+    if ( pcap_findalldevs(&devList, &devErrBuff) != 0 ) {
+        free(networkInterfaces);
+        return NULL;
+    }
+
+    pcap_if_t* device = devList;
+
+    while ( device->next != NULL ) {
+        if ( device->description == NULL )
+            continue;
+
+        networkInterfaces[networkInterfacesNum] = device->description;
+        networkInterfacesNum++;
+        device = device->next;
+    }
+
+    return networkInterfaces;
+}
+
+void StopPacketCapture()
+{
+    capturePackets = FALSE;
+}
+
+void ResetPacketCount()
+{
+    packetCount = 1;
 }
