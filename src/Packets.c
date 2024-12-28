@@ -523,7 +523,7 @@ void CapturePackets(int interfaceIndex) {
     if ( device == NULL )
         return;
 
-    pcap_t* handle = pcap_open_live(device->name, 262144, TRUE, 0, &openLiveErrBuff);
+    pcap_t* handle = pcap_open_live(device->name, 262144, FALSE, 0, &openLiveErrBuff);
     if ( !handle ) {
         MessageBoxA(NULL, "Failed to open selected network interface.", "Error", MB_OK | MB_ICONERROR);
         return;
@@ -580,9 +580,10 @@ char** GetNetworkInterfaceNames()
     pcap_if_t* device = devList;
     while ( device != NULL) {
         if ( device->description == NULL )
-            continue;
-
-        networkInterfaces[networkInterfacesNum] = _strdup(device->description);
+            networkInterfaces[networkInterfacesNum] = "Unknown Interface";
+        else
+            networkInterfaces[networkInterfacesNum] = _strdup(device->description);
+        
         networkInterfacesNum++;
         device = device->next;
     }

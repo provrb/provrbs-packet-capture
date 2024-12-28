@@ -411,10 +411,8 @@ void MainFrame::OnSaveAs(wxCommandEvent& event) {
         return;
     }
     
-    for ( auto& [packetNo, packet] : packets ) {
-        wxLogMessage(wxString::Format("Packet no %d. Packet len %d", packetNo, packet.capLen));
+    for ( auto& [packetNo, packet] : packets )
         packetCArray[packetNo] = &packet;
-    }
 
     BOOL success = DumpPacketsToFile(packetCArray, packets.size(), path.c_str());
     if ( success == FALSE )
