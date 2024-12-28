@@ -5,34 +5,37 @@
 #include <wx/display.h>
 #include <ui/UIEvents.h>
 #include <thread>
+#include <mutex>
 
 #include <Packets.h>
 
 wxIMPLEMENT_APP(App);
 
+std::mutex packetMutex;
+
 Packet MakePacketDeepCopy(struct Packet* original) {
-    Packet copied;
-    
-    copied.rawData  = new u_char[original->packetSize];
-    memcpy(copied.rawData, original->rawData, original->packetSize);
+  Packet copied;
+  
+  copied.rawData  = new u_char[original->packetSize];
+  memcpy(copied.rawData, original->rawData, original->packetSize);
 
-    copied.payload = new u_char[original->payloadSize];
-    memcpy(copied.payload, original->payload, original->payloadSize);
+  copied.payload = new u_char[original->payloadSize];
+  memcpy(copied.payload, original->payload, original->payloadSize);
 
-    copied.httpVer = original->httpVer;
-    copied.h_ethernet = original->h_ethernet;
-    copied.h_ip = original->h_ip;
-    copied.h_proto = original->h_proto;
-    copied.ipVer = original->ipVer;
-    copied.likelyHTTP = original->likelyHTTP;
-    copied.packetNumber = original->packetNumber;
-    copied.packetSize = original->packetSize;
-    copied.payloadSize = original->payloadSize;
-    copied.protocol = original->protocol;
-    copied.timestamp = original->timestamp;
-    copied.tls = original->tls;
+  copied.httpVer = original->httpVer;
+  copied.h_ethernet = original->h_ethernet;
+  copied.h_ip = original->h_ip;
+  copied.h_proto = original->h_proto;
+  copied.ipVer = original->ipVer;
+  copied.likelyHTTP = original->likelyHTTP;
+  copied.packetNumber = original->packetNumber;
+  copied.packetSize = original->packetSize;
+  copied.payloadSize = original->payloadSize;
+  copied.protocol = original->protocol;
+  copied.timestamp = original->timestamp;
+  copied.tls = original->tls;
 
-    return copied;
+  return copied;
 }
 
 void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
@@ -42,8 +45,9 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
         return;
     }
 
-    if ( !mainFrame->capturingPackets )
-        return;
+    if ( !mainFrame->isFileOpened )
+        if ( !mainFrame->capturingPackets && !mainFrame->importingPackets )
+            return;
 
     wxString srcAddr = "";
     wxString destAddr = "";
@@ -59,17 +63,17 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
         destAddr = mainFrame->MakeReadableIPV4Address(packet->h_ip.ip4.destIP);
     }
     else if ( IsARPPacket(packet) ) {
-        // src and dest will be mac addresses
+    // src and dest will be mac addresses
         ( IsBroadcastMAC(packet->h_ethernet.source) ) ? srcAddr = "Broadcast" : srcAddr = mainFrame->MakeReadableMACAddress(packet->h_ethernet.source);
         ( IsBroadcastMAC(packet->h_ethernet.dest) ) ? destAddr = "Broadcast" : destAddr = mainFrame->MakeReadableMACAddress(packet->h_ethernet.dest);
     }
 
     if ( packet->tls.usesTLS ) {
         protocol = "TCP/TLS";
-        if ( packet->tls.contentType == ApplicationData )
-            info += "Application Data ";
+    if ( packet->tls.contentType == ApplicationData )
+        info += "Application Data ";
     } 
-    
+  
     if ( IsSuspectedHTTPRequest(packet) )
         info += "HTTP Payload Suspected " + wxString::Format("%s", GetEnumName<HTTPVersions>(HTTPVersionNames, packet->httpVer)) + " ";
     else if ( IsKeepAlivePacket(packet) )
@@ -82,10 +86,18 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
     if ( IsARPPacket(packet) )
         info = "Who has " + mainFrame->MakeReadableIPV4Address(packet->h_proto.arp.senderIP) + "? Tell " + mainFrame->MakeReadableIPV4Address(packet->h_proto.arp.targetIP);
 
-
     Packet copied = MakePacketDeepCopy(packet);
 
-    mainFrame->packets.insert({ packet->packetNumber, copied });
+    {
+        std::lock_guard<std::mutex> lock(packetMutex);
+        auto result = mainFrame->packets.insert({ copied.packetNumber, copied });
+        if ( !result.second ) {
+            wxLogError("Failed to insert packet with number %d", copied.packetNumber - 1);
+            delete[] copied.rawData;
+            delete[] copied.payload;
+            return;
+        }
+    }
 
     mainFrame->InsertPacket(
         std::to_string(packet->packetNumber),
@@ -105,6 +117,7 @@ void FrontendReceivePacket(struct Packet* packet, u_char* packetData) {
 bool App::OnInit()
 {
     frontendCapturePacket = &FrontendReceivePacket;
+
     MainFrame* mainFrame = new MainFrame(APP_NAME);
     mainFrame->Show(true);
     mainFrame->SetIcon(wxICON(IDI_ICON1));

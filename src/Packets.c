@@ -467,6 +467,7 @@ static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, c
 
     struct Packet packet = ParseRawPacket(data, pacInfo->len);
     packet.timestamp = pacInfo->ts;
+    packet.packetSize = pacInfo->len;
     packet.capLen = pacInfo->caplen;
 
     if ( !FilterPacket(&packet) ) {
@@ -479,7 +480,7 @@ static pcap_handler HandlePacket(u_char* _, const struct pcap_pkthdr* pacInfo, c
 
     OnPacketCapture(&packet);
     g_cPacketCount++;
-    printf("\n\n");
+    //printf("\n\n");
 }
 
 pcap_if_t* GetNICFromIndex(int interfaceIndex) {
@@ -494,16 +495,18 @@ pcap_if_t* GetNICFromIndex(int interfaceIndex) {
         return NULL;
     }
 
-    pcap_if_t* device = devList;
     int numInterface = 0;
+    pcap_if_t* device = devList;
 
-    while ( device->next != NULL ) {
+    while ( device != NULL ) {
         if ( numInterface == interfaceIndex )
             break;
 
         numInterface++;
         device = device->next;
     }
+
+    pcap_freealldevs(devList);
 
     return device;
 }
@@ -549,10 +552,12 @@ int GetNumberOfNetworkInterfaces() {
 
     pcap_if_t* device = devList;
 
-    while ( device->next != NULL ) {
+    while ( device != NULL ) {
         numberOfNetworkInterfaces++;
         device = device->next;
     }
+
+    pcap_freealldevs(devList);
 
     return numberOfNetworkInterfaces;
 }
@@ -560,7 +565,7 @@ int GetNumberOfNetworkInterfaces() {
 char** GetNetworkInterfaceNames()
 {
     int networkInterfacesNum = 0;
-    char** networkInterfaces = ( char* ) malloc(1024);
+    char** networkInterfaces = ( char* ) malloc(1024 * sizeof(char*));
     if ( networkInterfaces == NULL )
         return NULL;
 
@@ -573,15 +578,16 @@ char** GetNetworkInterfaceNames()
     }
 
     pcap_if_t* device = devList;
-
-    while ( device->next != NULL ) {
+    while ( device != NULL) {
         if ( device->description == NULL )
             continue;
 
-        networkInterfaces[networkInterfacesNum] = device->description;
+        networkInterfaces[networkInterfacesNum] = _strdup(device->description);
         networkInterfacesNum++;
         device = device->next;
     }
+
+    pcap_freealldevs(devList);
 
     return networkInterfaces;
 }
@@ -614,8 +620,22 @@ BOOL ApplyFilter(int interfaceIndex, const char* filter) {
     return TRUE;
 }
 
+BOOL ImportPacketsFromPCAPFile(const char* filePath) {
+    char openErrBuff[PCAP_ERRBUF_SIZE];
+    pcap_t* handle = pcap_open_offline(filePath, &openErrBuff);
+    if ( handle == NULL )
+        return FALSE;
+
+    struct pcap_pkthdr info;
+    u_char* rawData;
+    
+    pcap_loop(handle, 0, HandlePacket, NULL);
+
+    return TRUE;
+}
+
 BOOL DumpPacketsToFile(struct Packet** packetArray, int numberOfPackets, const char* filePath) {
-    if ( numberOfPackets < 0 || packetArray[numberOfPackets] == NULL )
+    if ( numberOfPackets <= 0 || packetArray[numberOfPackets - 1] == NULL )
         return FALSE;
 
     pcap_t* handle = pcap_open_dead(DLT_EN10MB, 65535);
@@ -626,16 +646,23 @@ BOOL DumpPacketsToFile(struct Packet** packetArray, int numberOfPackets, const c
     if ( dump == NULL )
         return FALSE;
 
-    for ( int i = 0; i < numberOfPackets; i++ ) {
+    for ( int i = 1; i <= numberOfPackets; i++ ) {
         if ( packetArray[i] == NULL )
             continue;
 
         struct Packet* packet = packetArray[i];
 
+        if ( packet->rawData == NULL || packet->capLen <= 0 || packet->packetSize <= 0 ) {
+            continue;
+        }
+
         struct pcap_pkthdr info;
         info.caplen = packet->capLen;
         info.len = packet->packetSize;
         info.ts = packet->timestamp;
+
+        if ( info.caplen > info.len )
+            info.caplen = info.len;
 
         pcap_dump((u_char*)dump, &info, packet->rawData);
     }

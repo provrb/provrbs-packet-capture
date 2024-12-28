@@ -19,6 +19,10 @@ MainFrame::MainFrame(const wxString& title)
     menuFile->Append(wxID_OPEN);
     menuFile->Append(wxID_CLOSE);
     menuFile->AppendSeparator();
+    menuFile->Enable(wxID_CLOSE, false);
+
+    Bind(wxEVT_MENU, &MainFrame::OnClose, this, wxID_CLOSE);
+    Bind(wxEVT_MENU, &MainFrame::OnOpen, this, wxID_OPEN);
 
     wxMenu* menuView = new wxMenu;
     wxMenuItem* autoScrollCheckItem = new wxMenuItem(menuView, MENU_AUTO_SCROLL, "Packet List Auto Scroll", "", wxITEM_CHECK);
@@ -39,6 +43,11 @@ MainFrame::MainFrame(const wxString& title)
     menuFile->Append(wxID_SAVEAS);
     menuFile->AppendSeparator();
     menuFile->Append(wxID_EXIT);
+
+    menuFile->Enable(wxID_SAVE, false);
+    menuFile->Enable(wxID_SAVEAS, false);
+
+    Bind(wxEVT_MENU, &MainFrame::OnSaveAs, this, wxID_SAVEAS);
 
     wxMenu* menuHelp = new wxMenu;
     menuHelp->Append(wxID_ABOUT);
@@ -139,7 +148,6 @@ MainFrame::MainFrame(const wxString& title)
 
             capturingPackets = false;
             endedPacketCapture = true;
-            this->packets.clear();
             this->displayedPacketCount = 0;
 
             ResetPacketCount();
@@ -332,6 +340,98 @@ void MainFrame::HexDumpRightClicked(wxCommandEvent& event) {
     PopupMenu(&menu);
 }
 
+void MainFrame::OnClose(wxCommandEvent& event) {
+    // ask if they want to save contents
+    if ( !isFileOpened && openedFilePath.IsEmpty() ) {
+        int userInp = MessageBoxA(NULL, "Do you want to save the contents to a file?", "Save File", MB_YESNO | MB_ICONINFORMATION);
+        if ( userInp == IDYES )
+            // save contents to file
+            OnSaveAs(event);
+    }
+
+    DeleteAllPackets(event);
+    SetTitle(APP_NAME);
+    isFileOpened = false;
+    openedFilePath = "";
+
+    // disable close option
+    wxMenuBar* menuBar = GetMenuBar();
+    wxMenuItem* closeOption = menuBar->FindItem(wxID_CLOSE);
+    closeOption->Enable(false);
+}
+
+void MainFrame::OnOpen(wxCommandEvent& event) {
+    wxFileDialog fileDialog(this, "Select File To Read From", "", "", "", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    int userInp = fileDialog.ShowModal();
+    if ( userInp != wxID_OK )
+        return;
+
+    wxString path = fileDialog.GetPath();
+    if ( path == openedFilePath ) {
+        MessageBoxA(NULL, "File already opened in this session.", "Error", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    DeleteAllPackets(event);
+
+    importingPackets = true;
+    BOOL success = ImportPacketsFromPCAPFile(path.c_str());
+    importingPackets = false;
+
+    if ( !success ) {
+        MessageBoxA(NULL, "Error importing packets from PCAP file.", "Error", MB_OK | MB_ICONEXCLAMATION);
+        return;
+    }
+
+    MessageBoxA(NULL, "Successfully imported packets from file.", "Success", MB_OK | MB_ICONINFORMATION);
+    
+    SetTitle(fileDialog.GetFilename() + " - " + APP_NAME);
+    isFileOpened = true;
+    openedFilePath = fileDialog.GetPath();
+
+    // enable close option
+    wxMenuBar* menuBar = GetMenuBar();
+    wxMenuItem* closeOption = menuBar->FindItem(wxID_CLOSE);
+    closeOption->Enable(true);
+}
+
+void MainFrame::OnSaveAs(wxCommandEvent& event) {
+    wxFileDialog fileDialog(this, "Select File To Save Data", "", "", "", wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+    
+    int userInp = fileDialog.ShowModal();
+    if ( userInp != wxID_OK )
+        return;
+
+    wxString path = fileDialog.GetPath();
+
+    // convert 'packets' to c style array
+    Packet** packetCArray = ( Packet** ) malloc(sizeof(Packet*) * (packets.size() * 2));
+    if ( packetCArray == NULL ) {
+        MessageBoxA(NULL, "Failed to save packets to file.", "Error", MB_OK | MB_ICONEXCLAMATION);
+        return;
+    }
+    
+    for ( auto& [packetNo, packet] : packets ) {
+        wxLogMessage(wxString::Format("Packet no %d. Packet len %d", packetNo, packet.capLen));
+        packetCArray[packetNo] = &packet;
+    }
+
+    BOOL success = DumpPacketsToFile(packetCArray, packets.size(), path.c_str());
+    if ( success == FALSE )
+        MessageBoxA(NULL, "Failed to save packets to file.", "Error", MB_OK | MB_ICONEXCLAMATION);
+
+    free(packetCArray);
+    
+    SetTitle(fileDialog.GetFilename() + " - " + APP_NAME);
+    isFileOpened = true;
+    openedFilePath = fileDialog.GetPath();
+
+    // enable close option
+    wxMenuBar* menuBar = GetMenuBar();
+    wxMenuItem* closeOption = menuBar->FindItem(wxID_CLOSE);
+    closeOption->Enable(true);
+}
+
 int wxCALLBACK MainFrame::SortItem(wxIntPtr item1Index, wxIntPtr item2Index, wxIntPtr data) {
     SortData* sortData = ( SortData* ) data;
     wxListView* listView = sortData->listView;
@@ -490,19 +590,19 @@ void MainFrame::WritePacketInfoFooter(wxTextCtrl* packetInfoText, Packet packet)
 
 void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
     wxListView* packetListView = ( wxListView* ) FindWindow(kPacketListPanel);
+    if ( packetListView == NULL )
+        return;
 
     long itemIndex = packetListView->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
-    if ( itemIndex == this->shownPacketIndex ) // already shown
+    if ( itemIndex == this->shownPacketIndex || itemIndex == -1 ) // already shown
         return;
-    
+
     this->shownPacketIndex = itemIndex;
 
     wxString index = packetListView->GetItemText(itemIndex, 0); // get packet no
     long lIndex = std::stol(index.c_str().AsChar());
-    if ( !this->packets.contains(lIndex) ) {
-        wxLogMessage("Packet not found in saved packets");
+    if ( !this->packets.contains(lIndex) )
         return;
-    }
 
     Packet packet = this->packets.at(lIndex);
 
@@ -526,7 +626,7 @@ void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
     else if ( GetPacketProtocol(&packet) == ICMP || GetPacketProtocol(&packet) == ICMP6 ) WriteICMPHeader(packetInfoText, packet);
     else if ( GetPacketProtocol(&packet) == UDP ) WriteUDPHeader(packetInfoText, packet);
 
-    if ( packet.tls.usesTLS ) {
+    if ( packet.tls.usesTLS == TRUE ) {
         packetInfoText->WriteText("\n\nTransport Layer Security Details,");
         packetInfoText->WriteText("\nPayload is encrypted using TLS.");
         packetInfoText->WriteText("\nTLS Content Type: " + wxString::Format("%d (%s)", packet.tls.contentType, GetEnumName<TLSContentType>(TLSContentTypeNames, (TLSContentType)packet.tls.contentType)));
@@ -534,9 +634,9 @@ void MainFrame::ShowPacketInformation(wxCommandEvent& e) {
         packetInfoText->WriteText("\nTLS Encrypted Payload Length: " + wxString::Format("%d", ( packet.tls.encryptedPayloadLen[0] << 8 ) | packet.tls.encryptedPayloadLen[1]));
     }
 
-    if ( packet.likelyHTTP ) {
+    if ( packet.likelyHTTP == TRUE ) {
         packetInfoText->WriteText("\n\nHypertext Transfer Protocol,");
-        packetInfoText->WriteText("\nHTTP Version: " + wxString::Format("%s", HTTPVersionNames.at(packet.httpVer)));
+        packetInfoText->WriteText("\nHTTP Version: " + wxString::Format("%s", GetEnumName<HTTPVersions>(HTTPVersionNames, packet.httpVer)));
         packetInfoText->WriteText("\nCheck Hex Dump For More");
     }
 
@@ -601,7 +701,7 @@ void MainFrame::InsertPacket(
         colour = wxColour(76, 245, 169);
 
     wxListItem item;
-    item.SetId(packetListView->GetItemCount());
+    item.SetId(displayedPacketCount);
     item.SetBackgroundColour(colour);
 
     packetListView->InsertItem(item);
@@ -614,12 +714,26 @@ void MainFrame::InsertPacket(
     packetListView->SetItem(item.GetId(), 6, destPort);
     packetListView->SetItem(item.GetId(), 7, packetSize + " bytes");
     packetListView->SetItem(item.GetId(), 8, description);
+
     packetListView->Bind(wxEVT_LIST_ITEM_SELECTED, &MainFrame::ShowPacketInformation, this);
 
     this->displayedPacketCount++;
 
     if ( autoScroll )
         packetListView->EnsureVisible(item.GetId());
+
+    //  enable close, save and save as button file no longer empty
+    if ( displayedPacketCount > 0 && !packets.empty() ) {
+        wxMenuBar* menuBar = GetMenuBar();
+        wxMenuItem* closeButton = menuBar->FindItem(wxID_CLOSE);
+        wxMenuItem* saveButton = menuBar->FindItem(wxID_SAVE);
+        wxMenuItem* saveAsButton = menuBar->FindItem(wxID_SAVEAS);
+
+        saveButton->Enable(true);
+        saveAsButton->Enable(true);
+        closeButton->Enable(true);
+    }
+        
 }
 
 wxString MainFrame::MakeReadableIPV4Address(u_char* ipv4Addr)
@@ -656,8 +770,14 @@ void MainFrame::ClearPackets(wxCommandEvent& event)
     wxListView* packetListView = ( wxListView* ) FindWindow(kPacketListPanel);
     packetListView->DeleteAllItems();
     shownPacketIndex = -1;
+    displayedPacketCount = 0;
 }
 
+void MainFrame::DeleteAllPackets(wxCommandEvent& event) {
+    ClearPackets(event);
+    this->packets.clear();
+    ResetPacketCount();
+}
 
 void MainFrame::CopyRawHex(wxCommandEvent& event)
 {

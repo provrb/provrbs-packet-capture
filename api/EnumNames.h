@@ -6,7 +6,7 @@
 #define ENUM_NAMES_FOR(e) static std::unordered_map<e, const char*>
 
 template <typename _Enum>
-const char* GetEnumName(ENUM_NAMES_FOR(_Enum) names, _Enum e) {
+const char* GetEnumName(const ENUM_NAMES_FOR(_Enum)& names, _Enum e) {
     try {
         return names.at(e);
     }

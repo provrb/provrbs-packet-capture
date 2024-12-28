@@ -214,6 +214,8 @@ BOOL ApplyFilter(int interfaceIndex, const char* filter);
 
 BOOL DumpPacketsToFile(struct Packet** packetArray, int numberOfPackets, const char* filePath);
 
+BOOL ImportPacketsFromPCAPFile(const char* filePath);
+
 #ifdef __cplusplus
 }
 #endif
