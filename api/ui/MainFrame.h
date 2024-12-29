@@ -28,6 +28,7 @@ enum Menus {
     KStopPacketCapture = 10,
     kPausePacketCapture = 492,
     kResumePacketCapture = 921,
+    kEnablePromMode = 5122,
 };
 
 enum SortOrder {
@@ -93,6 +94,7 @@ public:
     void     HexDumpRightClicked(wxCommandEvent& event);
     void     OnOpen(wxCommandEvent& event);
     void     OnSaveAs(wxCommandEvent& event);
+    void     OnSave(wxCommandEvent& event);
     void     OnClose(wxCommandEvent& event);
 
 private:

@@ -14,8 +14,6 @@ MainFrame::MainFrame(const wxString& title)
 
     wxMenu* menuFile = new wxMenu;
     menuFile->Append(wxID_NEW);
-    menuFile->AppendSubMenu(new wxMenu, "&Open Recent");
-    menuFile->AppendSubMenu(new wxMenu, "&Import from Hex Dump");
     menuFile->Append(wxID_OPEN);
     menuFile->Append(wxID_CLOSE);
     menuFile->AppendSeparator();
@@ -48,6 +46,7 @@ MainFrame::MainFrame(const wxString& title)
     menuFile->Enable(wxID_SAVEAS, false);
 
     Bind(wxEVT_MENU, &MainFrame::OnSaveAs, this, wxID_SAVEAS);
+    Bind(wxEVT_MENU, &MainFrame::OnSave, this, wxID_SAVE);
 
     wxMenu* menuHelp = new wxMenu;
     menuHelp->Append(wxID_ABOUT);
@@ -62,6 +61,7 @@ MainFrame::MainFrame(const wxString& title)
     wxMenuItem* stopCapturePacketsOption = new wxMenuItem(NULL, KStopPacketCapture, "End Packet Capture");
     wxMenuItem* pausePacketCapture = new wxMenuItem(NULL, kPausePacketCapture, "Pause Packet Capture");
     wxMenuItem* resumePacketCapture = new wxMenuItem(NULL, kResumePacketCapture, "Resume Packet Capture");
+    wxMenuItem* enablePromMode = new wxMenuItem(NULL, kEnablePromMode, "Promiscuous Mode", "", wxITEM_CHECK);
 
     stopCapturePacketsOption->Enable(false);
     startCapturePacketsOption->Enable(false);
@@ -107,10 +107,20 @@ MainFrame::MainFrame(const wxString& title)
         );
     }
 
+    Bind(wxEVT_MENU, [this, enablePromMode](wxCommandEvent& e)
+        {
+            // Toggle the mode
+            bool newMode = !IsPromiscuousModeEnabled();
+            TogglePromiscuousMode(newMode);
+            enablePromMode->Check(newMode);
+        },
+        kEnablePromMode
+    );
+
     /*
     * Start capturing packets button was clicked.
     */
-    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption, pausePacketCapture, resumePacketCapture](wxCommandEvent& event)
+    Bind(wxEVT_MENU, [this, startCapturePacketsOption, stopCapturePacketsOption, pausePacketCapture, resumePacketCapture, enablePromMode](wxCommandEvent& event)
         {
             if ( capturingPackets ) {
                 MessageBoxA(NULL, "Cannot capture packets. Already capturing packets.", "Information", MB_OK | MB_ICONINFORMATION);
@@ -125,6 +135,8 @@ MainFrame::MainFrame(const wxString& title)
             capturingPackets = true;
             startCapturePacketsOption->Enable(false);
             stopCapturePacketsOption->Enable(true);
+            enablePromMode->Enable(false);
+
             // enable pause
             pausePacketCapture->Enable(true);
             resumePacketCapture->Enable(false);
@@ -193,6 +205,8 @@ MainFrame::MainFrame(const wxString& title)
         kResumePacketCapture
     );
 
+    menuCapture->Append(enablePromMode);
+    menuCapture->AppendSeparator();
     menuCapture->Append(startCapturePacketsOption);
     menuCapture->Append(stopCapturePacketsOption);
     menuCapture->AppendSeparator();
@@ -428,6 +442,29 @@ void MainFrame::OnSaveAs(wxCommandEvent& event) {
     wxMenuBar* menuBar = GetMenuBar();
     wxMenuItem* closeOption = menuBar->FindItem(wxID_CLOSE);
     closeOption->Enable(true);
+}
+
+void MainFrame::OnSave(wxCommandEvent& event) {
+    if ( !isFileOpened && openedFilePath.IsEmpty() ) {
+        // save as prompt
+        OnSaveAs(event);
+        return;
+    }
+
+    // convert 'packets' to c style array
+    Packet** packetCArray = ( Packet** ) malloc(sizeof(Packet*) * ( packets.size() * 2 ));
+    if ( packetCArray == NULL ) {
+        MessageBoxA(NULL, "Failed to save packets to file.", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    for ( auto& [packetNo, packet] : packets )
+        packetCArray[packetNo] = &packet;
+
+    // write to opened file
+    BOOL success = DumpPacketsToFile(packetCArray, packets.size(), openedFilePath);
+    if ( success == FALSE )
+        MessageBoxA(NULL, "Failed to save packets to file.", "Error", MB_OK | MB_ICONERROR);
 }
 
 int wxCALLBACK MainFrame::SortItem(wxIntPtr item1Index, wxIntPtr item2Index, wxIntPtr data) {

@@ -173,6 +173,14 @@ BOOL IsICMP6Header(struct Packet* packet, int index, uint32_t offset) {
     return ( IsIPV6Packet(packet) && GetPacketProtocol(packet) == ICMP6 && index >= offset && index <= offset + ICMP6_HEADER_SIZE );
 }
 
+void TogglePromiscuousMode(BOOL newValue) {
+    g_cUsePromiscuousMode = newValue;
+}
+
+BOOL IsPromiscuousModeEnabled() {
+    return g_cUsePromiscuousMode == TRUE;
+}
+
 /*
 * Check all flags in the TCP packet. If the flag 
 * is set, add the acrynoym to a string and return that string
@@ -367,8 +375,8 @@ BOOL IsKeepAlivePacket(struct Packet* packet) {
 }
 
 BOOL FilterPacket(struct Packet* packet) {
-    if ( GetIPVersion(packet) == UnknownIPV )
-        return FALSE;
+    //if ( GetIPVersion(packet) == UnknownIPV )
+        //return FALSE;
 
     return TRUE; // passthrough
 }
@@ -523,10 +531,19 @@ void CapturePackets(int interfaceIndex) {
     if ( device == NULL )
         return;
 
-    pcap_t* handle = pcap_open_live(device->name, 262144, FALSE, 0, &openLiveErrBuff);
+    pcap_t* handle = pcap_open_live(device->name, 262144, g_cUsePromiscuousMode, 0, &openLiveErrBuff);
     if ( !handle ) {
-        MessageBoxA(NULL, "Failed to open selected network interface.", "Error", MB_OK | MB_ICONERROR);
-        return;
+        // if g_cUsePromiscuousMode == TRUE, try without using it
+        if ( g_cUsePromiscuousMode == TRUE && strstr(openLiveErrBuff, "Promiscuous mode") ) {
+            TogglePromiscuousMode(FALSE);
+            handle = pcap_open_live(device->name, 262144, g_cUsePromiscuousMode, 0, &openLiveErrBuff);
+        }
+
+        // double check 
+        if ( !handle ) {
+            MessageBoxA(NULL, "Failed to open selected network interface.", "Error", MB_OK | MB_ICONERROR);
+            return;
+        }
     }
 
     // malloc
@@ -553,6 +570,11 @@ int GetNumberOfNetworkInterfaces() {
     pcap_if_t* device = devList;
 
     while ( device != NULL ) {
+        if ( device->flags & PCAP_IF_LOOPBACK ) {
+            device = device->next;
+            continue;
+        }
+        
         numberOfNetworkInterfaces++;
         device = device->next;
     }
@@ -579,10 +601,16 @@ char** GetNetworkInterfaceNames()
 
     pcap_if_t* device = devList;
     while ( device != NULL) {
-        if ( device->description == NULL )
-            networkInterfaces[networkInterfacesNum] = "Unknown Interface";
-        else
+        if ( device->flags & PCAP_IF_LOOPBACK ) {
+            // skip
+            device = device->next;
+            continue;
+        }
+
+        if ( device->description )
             networkInterfaces[networkInterfacesNum] = _strdup(device->description);
+        else
+            networkInterfaces[networkInterfacesNum] = "Unknown Interface";
         
         networkInterfacesNum++;
         device = device->next;
