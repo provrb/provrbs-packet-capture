@@ -5,12 +5,12 @@ A packet capture program built using C for the backend (with Npcap) and C++ with
 A packet capture program built using C for the backend (with Npcap) and C++ with wxWidgets for the frontend. This application allows users to capture network packets on Windows systems, providing real-time analysis with an intuitive graphical interface.
 
 ## Table of Contents
-1. Overview - an overview of the project
-2. Features - what features this project contains
-3. Installation - how to install the application and source code
-4. Building - how to build the application from source
-5. Contributing - contributing to the project
-6. License - the license this project is under
+1. [Overview](#overview) - an overview of the project
+2. [Features](#features) - what features this project contains
+3. [Installation](#installation) - how to install the application and source code
+4. [Building](#building-the-project) - how to build the application from source
+5. [Contributing](#contributing) - contributing to the project
+6. [License](#license) - the license this project is under
 
 ## Overview
 
@@ -68,4 +68,4 @@ Be sure to include detail in your submitted pull request.
 ## License
 
 This project is licensed under the GNU General Public License v2.0 (GPL-2.0) License - see the LICENSE file for details.
-    [License](https://github.com/provrb/provrbs-packet-capture/blob/main/LICENSE)
+    [License](LICENSE)
