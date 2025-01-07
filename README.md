@@ -4,6 +4,8 @@ A packet capture program built using C for the backend (with Npcap) and C++ with
 
 A packet capture program built using C for the backend (with Npcap) and C++ with wxWidgets for the frontend. This application allows users to capture network packets on Windows systems, providing real-time analysis with an intuitive graphical interface.
 
+![Example](https://media.discordapp.net/attachments/614952013070860486/1322053605896749086/image.png?ex=677dfa5e&is=677ca8de&hm=bd7e7bd41dd72969368fdf06beb4dc0f968398960d55848b55291132726d205b&=&format=webp&quality=lossless&width=816&height=442)
+
 ## Table of Contents
 1. [Overview](#overview) - an overview of the project
 2. [Features](#features) - what features this project contains
@@ -69,3 +71,5 @@ Be sure to include detail in your submitted pull request.
 
 This project is licensed under the GNU General Public License v2.0 (GPL-2.0) License - see the LICENSE file for details.
     [License](LICENSE)
+
+![Logo](src/rsrc/gui_icon.ico)
