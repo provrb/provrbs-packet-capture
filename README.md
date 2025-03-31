@@ -2,8 +2,6 @@
 
 A packet capture program built using C for the backend (with Npcap) and C++ with wxWidgets for the frontend. This application allows users to capture network packets on Windows systems, providing real-time analysis with a  graphical interface.
 
-A packet capture program built using C for the backend (with Npcap) and C++ with wxWidgets for the frontend. This application allows users to capture network packets on Windows systems, providing real-time analysis with an intuitive graphical interface.
-
 ![Example](/procapture.png)
 
 ## Table of Contents
